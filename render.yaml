@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: sp-migration-companion-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: HF_TOKEN
+        sync: false   # set manually in Render dashboard
+    healthCheckPath: /health
