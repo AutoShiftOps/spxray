@@ -1,0 +1,607 @@
+USE [DW];
+GO
+
+SET NOCOUNT ON;
+
+------------------------------------------------------------
+-- CHANGE ONLY THESE VALUES
+------------------------------------------------------------
+DECLARE @RootSchema sysname = N'dbo';
+DECLARE @RootObject sysname = N'spOpenOrdersByProvider';
+------------------------------------------------------------
+
+DECLARE @RootObjectId int;
+
+SET @RootObjectId =
+    OBJECT_ID
+    (
+        QUOTENAME(@RootSchema)
+        + N'.'
+        + QUOTENAME(@RootObject)
+    );
+
+------------------------------------------------------------
+-- Validate the supplied stored procedure
+------------------------------------------------------------
+IF @RootObjectId IS NULL
+BEGIN
+    RAISERROR
+    (
+        'The specified stored procedure was not found in the current database.',
+        16,
+        1
+    );
+
+    RETURN;
+END;
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.procedures
+    WHERE object_id = @RootObjectId
+)
+BEGIN
+    RAISERROR
+    (
+        'The specified object exists but is not a stored procedure.',
+        16,
+        1
+    );
+
+    RETURN;
+END;
+
+------------------------------------------------------------
+-- Remove previous temporary analysis tables
+------------------------------------------------------------
+DROP TABLE IF EXISTS #ObjectQueue;
+DROP TABLE IF EXISTS #DependencyPaths;
+DROP TABLE IF EXISTS #Errors;
+
+------------------------------------------------------------
+-- Queue of procedures, views and functions to analyse
+------------------------------------------------------------
+CREATE TABLE #ObjectQueue
+(
+    QueueId             int IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    ObjectId            int NOT NULL,
+    ObjectSchema        sysname NOT NULL,
+    ObjectName          sysname NOT NULL,
+    ObjectType          char(2) NULL,
+    DependencyLevel     int NOT NULL,
+    ParentObjectId      int NULL,
+    IsProcessed         bit NOT NULL DEFAULT (0)
+);
+
+------------------------------------------------------------
+-- All dependencies discovered during recursive analysis
+------------------------------------------------------------
+CREATE TABLE #DependencyPaths
+(
+    RootObjectId        int NOT NULL,
+    ReferencingObjectId int NOT NULL,
+    ReferencedObjectId  int NULL,
+    ReferencedDatabase  sysname NULL,
+    ReferencedSchema    sysname NULL,
+    ReferencedObject    sysname NULL,
+    ReferencedColumn    sysname NULL,
+    ReferencedType      char(2) NULL,
+    DependencyLevel     int NOT NULL,
+    IsSelectAll         bit NULL,
+    IsUpdated           bit NULL
+);
+
+------------------------------------------------------------
+-- Extraction errors and unresolved references
+------------------------------------------------------------
+CREATE TABLE #Errors
+(
+    IssueId             int IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    IssueType           varchar(30) NOT NULL,
+    ObjectId            int NULL,
+    ObjectName          nvarchar(517) NULL,
+    ReferencedObject    nvarchar(776) NULL,
+    ErrorNumber         int NULL,
+    ErrorMessage        nvarchar(4000) NULL
+);
+
+------------------------------------------------------------
+-- Add the root stored procedure to the processing queue
+------------------------------------------------------------
+INSERT INTO #ObjectQueue
+(
+    ObjectId,
+    ObjectSchema,
+    ObjectName,
+    ObjectType,
+    DependencyLevel,
+    ParentObjectId
+)
+SELECT
+    o.object_id,
+    s.name,
+    o.name,
+    o.type,
+    0,
+    NULL
+FROM sys.objects o
+INNER JOIN sys.schemas s
+    ON s.schema_id = o.schema_id
+WHERE o.object_id = @RootObjectId;
+
+------------------------------------------------------------
+-- Variables used by the recursive loop
+------------------------------------------------------------
+DECLARE
+    @QueueId                 int,
+    @CurrentObjectId         int,
+    @CurrentSchema           sysname,
+    @CurrentObject           sysname,
+    @CurrentLevel            int,
+    @NextDependencyLevel     int,
+    @QualifiedObjectName     nvarchar(517),
+    @SQL                     nvarchar(max);
+
+------------------------------------------------------------
+-- Recursively analyse:
+-- Procedure -> View / Function / Procedure -> Physical table
+------------------------------------------------------------
+WHILE EXISTS
+(
+    SELECT 1
+    FROM #ObjectQueue
+    WHERE IsProcessed = 0
+)
+BEGIN
+    --------------------------------------------------------
+    -- Get the next object that has not been processed
+    --------------------------------------------------------
+    SELECT TOP (1)
+        @QueueId         = QueueId,
+        @CurrentObjectId = ObjectId,
+        @CurrentSchema   = ObjectSchema,
+        @CurrentObject   = ObjectName,
+        @CurrentLevel    = DependencyLevel
+    FROM #ObjectQueue
+    WHERE IsProcessed = 0
+    ORDER BY QueueId;
+
+    SET @QualifiedObjectName =
+        QUOTENAME(@CurrentSchema)
+        + N'.'
+        + QUOTENAME(@CurrentObject);
+
+    --------------------------------------------------------
+    -- Calculate the next dependency level separately.
+    -- This avoids the EXEC parameter syntax error.
+    --------------------------------------------------------
+    SET @NextDependencyLevel = @CurrentLevel + 1;
+
+    BEGIN TRY
+
+        SET @SQL = N'
+        INSERT INTO #DependencyPaths
+        (
+            RootObjectId,
+            ReferencingObjectId,
+            ReferencedObjectId,
+            ReferencedDatabase,
+            ReferencedSchema,
+            ReferencedObject,
+            ReferencedColumn,
+            ReferencedType,
+            DependencyLevel,
+            IsSelectAll,
+            IsUpdated
+        )
+        SELECT DISTINCT
+            @RootId,
+            @ReferencingId,
+            d.referenced_id,
+            d.referenced_database_name,
+            d.referenced_schema_name,
+            d.referenced_entity_name,
+            d.referenced_minor_name,
+            o.type,
+            @NextLevel,
+            d.is_select_all,
+            d.is_updated
+        FROM sys.dm_sql_referenced_entities
+        (
+            N''' +
+            REPLACE
+            (
+                @QualifiedObjectName,
+                N'''',
+                N''''''
+            )
+            + N''',
+            N''OBJECT''
+        ) d
+        LEFT JOIN sys.objects o
+            ON o.object_id = d.referenced_id
+        WHERE
+            d.referenced_class_desc = N''OBJECT_OR_COLUMN'';';
+
+        EXEC sys.sp_executesql
+            @SQL,
+            N'@RootId int,
+              @ReferencingId int,
+              @NextLevel int',
+            @RootId        = @RootObjectId,
+            @ReferencingId = @CurrentObjectId,
+            @NextLevel     = @NextDependencyLevel;
+
+    END TRY
+    BEGIN CATCH
+
+        INSERT INTO #Errors
+        (
+            IssueType,
+            ObjectId,
+            ObjectName,
+            ReferencedObject,
+            ErrorNumber,
+            ErrorMessage
+        )
+        VALUES
+        (
+            'EXTRACTION_ERROR',
+            @CurrentObjectId,
+            @QualifiedObjectName,
+            NULL,
+            ERROR_NUMBER(),
+            ERROR_MESSAGE()
+        );
+
+    END CATCH;
+
+    --------------------------------------------------------
+    -- Add nested procedures, views and functions to queue.
+    --
+    -- Physical tables are not queued because recursion
+    -- stops after reaching the physical table.
+    --------------------------------------------------------
+    INSERT INTO #ObjectQueue
+    (
+        ObjectId,
+        ObjectSchema,
+        ObjectName,
+        ObjectType,
+        DependencyLevel,
+        ParentObjectId
+    )
+    SELECT DISTINCT
+        o.object_id,
+        s.name,
+        o.name,
+        o.type,
+        @NextDependencyLevel,
+        @CurrentObjectId
+    FROM #DependencyPaths d
+    INNER JOIN sys.objects o
+        ON o.object_id = d.ReferencedObjectId
+    INNER JOIN sys.schemas s
+        ON s.schema_id = o.schema_id
+    WHERE
+        d.ReferencingObjectId = @CurrentObjectId
+
+        AND o.type IN
+        (
+            'P',    -- SQL stored procedure
+            'V',    -- View
+            'FN',   -- Scalar SQL function
+            'IF',   -- Inline table-valued function
+            'TF'    -- Multi-statement table-valued function
+        )
+
+        AND NOT EXISTS
+        (
+            SELECT 1
+            FROM #ObjectQueue q
+            WHERE q.ObjectId = o.object_id
+        );
+
+    --------------------------------------------------------
+    -- Mark the current object as processed
+    --------------------------------------------------------
+    UPDATE #ObjectQueue
+    SET IsProcessed = 1
+    WHERE QueueId = @QueueId;
+END;
+
+------------------------------------------------------------
+-- Record references SQL Server could not resolve
+------------------------------------------------------------
+INSERT INTO #Errors
+(
+    IssueType,
+    ObjectId,
+    ObjectName,
+    ReferencedObject,
+    ErrorNumber,
+    ErrorMessage
+)
+SELECT DISTINCT
+    'UNRESOLVED_REFERENCE',
+
+    d.ReferencingObjectId,
+
+    QUOTENAME
+    (
+        OBJECT_SCHEMA_NAME(d.ReferencingObjectId)
+    )
+    + N'.'
+    + QUOTENAME
+    (
+        OBJECT_NAME(d.ReferencingObjectId)
+    ),
+
+    COALESCE
+    (
+        QUOTENAME(d.ReferencedDatabase) + N'.',
+        N''
+    )
+    + COALESCE
+    (
+        QUOTENAME(d.ReferencedSchema) + N'.',
+        N''
+    )
+    + QUOTENAME(d.ReferencedObject),
+
+    NULL,
+
+    N'SQL Server identified the referenced name but could not '
+    + N'resolve its object ID. Review this dependency manually.'
+
+FROM #DependencyPaths d
+WHERE
+    d.ReferencedObjectId IS NULL
+    AND d.ReferencedObject IS NOT NULL;
+
+------------------------------------------------------------
+-- Produce final physical table-and-column inventory
+------------------------------------------------------------
+;WITH ExpandedPhysicalDependencies AS
+(
+    SELECT
+        d.ReferencedObjectId,
+
+        SchemaName =
+            s.name,
+
+        PhysicalTable =
+            o.name,
+
+        ColumnName =
+            CASE
+                ------------------------------------------------
+                -- Normal column-level dependency
+                ------------------------------------------------
+                WHEN d.ReferencedColumn IS NOT NULL
+                    THEN d.ReferencedColumn
+
+                ------------------------------------------------
+                -- Expand SELECT * against a physical table
+                ------------------------------------------------
+                WHEN d.IsSelectAll = 1
+                    THEN c.name
+
+                ------------------------------------------------
+                -- Object-level dependency with no column
+                ------------------------------------------------
+                ELSE NULL
+            END,
+
+        IsSelectAll =
+            CONVERT
+            (
+                tinyint,
+                ISNULL(d.IsSelectAll, 0)
+            ),
+
+        IsUpdated =
+            CONVERT
+            (
+                tinyint,
+                ISNULL(d.IsUpdated, 0)
+            )
+
+    FROM #DependencyPaths d
+
+    INNER JOIN sys.objects o
+        ON o.object_id = d.ReferencedObjectId
+
+    INNER JOIN sys.schemas s
+        ON s.schema_id = o.schema_id
+
+    LEFT JOIN sys.columns c
+        ON c.object_id = o.object_id
+        AND d.IsSelectAll = 1
+        AND d.ReferencedColumn IS NULL
+
+    WHERE
+        o.type = 'U'              -- Physical user tables only
+        AND o.is_ms_shipped = 0
+        AND o.name NOT LIKE '#%'
+),
+ColumnDependencies AS
+(
+    SELECT
+        e.ReferencedObjectId,
+        e.SchemaName,
+        e.PhysicalTable,
+        e.ColumnName,
+
+        IsSelectAll =
+            MAX(e.IsSelectAll),
+
+        IsUpdated =
+            MAX(e.IsUpdated)
+
+    FROM ExpandedPhysicalDependencies e
+    WHERE e.ColumnName IS NOT NULL
+
+    GROUP BY
+        e.ReferencedObjectId,
+        e.SchemaName,
+        e.PhysicalTable,
+        e.ColumnName
+),
+TableFlags AS
+(
+    SELECT
+        e.ReferencedObjectId,
+
+        TableIsSelectAll =
+            MAX(e.IsSelectAll),
+
+        TableIsUpdated =
+            MAX(e.IsUpdated)
+
+    FROM ExpandedPhysicalDependencies e
+    GROUP BY
+        e.ReferencedObjectId
+),
+FinalColumnDependencies AS
+(
+    SELECT
+        c.ReferencedObjectId,
+        c.SchemaName,
+        c.PhysicalTable,
+        c.ColumnName,
+
+        IsSelectAll =
+            CASE
+                WHEN f.TableIsSelectAll > c.IsSelectAll
+                    THEN f.TableIsSelectAll
+                ELSE c.IsSelectAll
+            END,
+
+        IsUpdated =
+            CASE
+                WHEN f.TableIsUpdated > c.IsUpdated
+                    THEN f.TableIsUpdated
+                ELSE c.IsUpdated
+            END
+
+    FROM ColumnDependencies c
+    INNER JOIN TableFlags f
+        ON f.ReferencedObjectId = c.ReferencedObjectId
+),
+TableLevelDependencies AS
+(
+    SELECT
+        e.ReferencedObjectId,
+        e.SchemaName,
+        e.PhysicalTable,
+
+        ColumnName =
+            CONVERT(sysname, NULL),
+
+        IsSelectAll =
+            MAX(e.IsSelectAll),
+
+        IsUpdated =
+            MAX(e.IsUpdated)
+
+    FROM ExpandedPhysicalDependencies e
+    WHERE
+        e.ColumnName IS NULL
+
+        ----------------------------------------------------
+        -- Keep table-level reference only when no genuine
+        -- physical columns were found for that table.
+        ----------------------------------------------------
+        AND NOT EXISTS
+        (
+            SELECT 1
+            FROM FinalColumnDependencies c
+            WHERE
+                c.ReferencedObjectId =
+                    e.ReferencedObjectId
+        )
+
+    GROUP BY
+        e.ReferencedObjectId,
+        e.SchemaName,
+        e.PhysicalTable
+),
+FinalPhysicalDependencies AS
+(
+    SELECT
+        ReferencedObjectId,
+        SchemaName,
+        PhysicalTable,
+        ColumnName,
+        IsSelectAll,
+        IsUpdated
+    FROM FinalColumnDependencies
+
+    UNION ALL
+
+    SELECT
+        ReferencedObjectId,
+        SchemaName,
+        PhysicalTable,
+        ColumnName,
+        IsSelectAll,
+        IsUpdated
+    FROM TableLevelDependencies
+)
+SELECT
+    StoredProcedure =
+        QUOTENAME(@RootSchema)
+        + N'.'
+        + QUOTENAME(@RootObject),
+
+    DatabaseName =
+        DB_NAME(),
+
+    SchemaName,
+
+    PhysicalTable,
+
+    ColumnName =
+        COALESCE
+        (
+            ColumnName,
+            N'[TABLE-LEVEL REFERENCE]'
+        ),
+
+    IsSelectAll =
+        CASE
+            WHEN IsSelectAll = 1 THEN N'Yes'
+            ELSE N'No'
+        END,
+
+    IsUpdated =
+        CASE
+            WHEN IsUpdated = 1 THEN N'Yes'
+            ELSE N'No'
+        END
+
+FROM FinalPhysicalDependencies
+
+ORDER BY
+    SchemaName,
+    PhysicalTable,
+    ColumnName;
+
+
+
+
+-- Step6
+
+SELECT
+    IssueType,
+    ObjectName,
+    ReferencedObject,
+    ErrorNumber,
+    ErrorMessage
+FROM #Errors
+ORDER BY
+    IssueType,
+    ObjectName,
+    ReferencedObject;
