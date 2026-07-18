@@ -7,4 +7,7 @@ services:
     envVars:
       - key: HF_TOKEN
         sync: false   # set manually in Render dashboard
+      - key: PYTHON_VERSION
+        value: 3.11.9   # pin below 3.13 so pip finds prebuilt pydantic-core wheels
+                        # instead of compiling via maturin/cargo (fails: read-only fs)
     healthCheckPath: /health
