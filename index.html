@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SP Migration Companion — BSA Tool</title>
+<title>sql-sp-companion — Every migration tool needs a DB connection. This one needs a folder of .sql files.</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -199,8 +199,8 @@ tr:hover td{background:rgba(0,194,168,.04)}
   <div class="header-brand">
     <div class="brand-icon">🔍</div>
     <div>
-      <div class="brand-name">SP Migration Companion</div>
-      <div class="brand-sub">BSA Tool — Stored Procedure Analyzer</div>
+      <div class="brand-name">sql-sp-companion</div>
+      <div class="brand-sub">Stored Procedure Analyzer — No DB Connection Required</div>
     </div>
   </div>
   <div class="header-actions" id="headerActions" style="display:none">
@@ -212,7 +212,7 @@ tr:hover td{background:rgba(0,194,168,.04)}
 <!-- API config bar -->
 <div class="api-bar">
   <span class="api-label">API Endpoint:</span>
-  <input class="api-input" id="apiUrl" value="https://sql-sp-companion-api.onrender.com"
+  <input class="api-input" id="apiUrl" value="https://sql-sp-companion.onrender.com"
          placeholder="https://your-render-app.onrender.com"
          onchange="checkApiHealth()" />
   <button class="btn btn-ghost btn-sm" onclick="checkApiHealth()">Check</button>
@@ -226,7 +226,7 @@ tr:hover td{background:rgba(0,194,168,.04)}
 
 <!-- Upload -->
 <div class="upload-zone" id="uploadZone">
-  <div class="upload-hero">Analyze stored procedures.<br><span>Plan migrations with confidence.</span></div>
+  <div class="upload-hero">Every other database migration tool needs a database connection or a credit card.<br><span>This one needs a folder of .sql files.</span></div>
   <p class="upload-sub">Upload .sql files — the Python backend extracts every physical table, schema, column and CRUD operation. Optional AI insights powered by HuggingFace Mistral-7B.</p>
   <div class="dropzone" id="dropzone">
     <input type="file" id="fileInput" multiple accept=".sql,.txt" onchange="handleFiles(this.files)">
@@ -398,7 +398,7 @@ let uploadedFiles  = [];
 let analysisResult = null;
 
 function apiBase() {
-  return (document.getElementById('apiUrl').value || 'https://sql-sp-companion-api.onrender.com').replace(/\/$/, '');
+  return (document.getElementById('apiUrl').value || 'https://sql-sp-companion.onrender.com').replace(/\/$/, '');
 }
 
 // ── Health check ───────────────────────────────────────────────
@@ -742,7 +742,7 @@ function downloadExcel() {
   const wb = XLSX.utils.book_new();
 
   const sumData = [
-    ['SP Migration Companion — Analysis Report'],
+    ['sql-sp-companion — Analysis Report'],
     [`Generated: ${new Date().toLocaleString()}`],[],
     ['#','Procedure','File','Dialect','Tables','Columns','Dynamic SQL?'],
     ...d.procedures.map((p,i)=>[i+1,p.name,p.file,p.dialect,p.table_count,p.col_count,p.is_dynamic?'⚠ YES':'No'])
