@@ -227,7 +227,7 @@ tr:hover td{background:rgba(0,194,168,.04)}
 <!-- Upload -->
 <div class="upload-zone" id="uploadZone">
   <div class="upload-hero">Every other database migration tool needs a database connection or a credit card.<br><span>This one needs a folder of .sql files.</span></div>
-  <p class="upload-sub">Upload .sql files — the Python backend extracts every physical table, schema, column and CRUD operation. Optional AI insights powered by HuggingFace Mistral-7B.</p>
+  <p class="upload-sub">Upload .sql files — the Python backend extracts every physical table, schema, column and CRUD operation. Optional AI insights powered by HuggingFace (Qwen2.5-Coder).</p>
   <div class="dropzone" id="dropzone">
     <input type="file" id="fileInput" multiple accept=".sql,.txt" onchange="handleFiles(this.files)">
     <span class="dropzone-icon">📂</span>
@@ -348,7 +348,7 @@ tr:hover td{background:rgba(0,194,168,.04)}
     <div class="ai-checkbox-row">
       <label>
         <input type="checkbox" id="aiEnabled" onchange="toggleAiOptions()"/>
-        Enable AI Migration Risk Insights (HuggingFace Mistral-7B)
+        Enable AI Migration Risk Insights (HuggingFace Qwen2.5-Coder)
       </label>
       <span style="font-size:11px;color:var(--warn)" title="Table names, schema names and operation types are sent to the HuggingFace Inference API. Your SQL source code is never sent.">⚠ Sends schema metadata (not SQL source) to external API</span>
       <div id="aiOptions" style="display:none;display:none;align-items:center;gap:10px;flex:1">
@@ -364,14 +364,14 @@ tr:hover td{background:rgba(0,194,168,.04)}
       <div class="ai-panel-header">
         <div class="ai-panel-title">
           ✨ Migration Risk Assessment
-          <span class="ai-model-tag" id="aiModelTag">Mistral-7B</span>
+          <span class="ai-model-tag" id="aiModelTag">Qwen2.5-Coder-3B-Instruct</span>
         </div>
         <button class="btn btn-ghost btn-sm" onclick="getAiInsights()">↻ Regenerate</button>
       </div>
       <div id="aiPanelContent">
         <div class="ai-loading" id="aiLoading" style="display:none">
           <div class="ai-spinner"></div>
-          Analyzing with Mistral-7B — this may take 20–40 seconds if the model is cold-starting…
+          Analyzing with Qwen2.5-Coder — this may take 20–40 seconds if the model is cold-starting…
         </div>
         <div class="ai-error" id="aiError" style="display:none">⚠ <span id="aiErrorMsg"></span></div>
         <div class="ai-content" id="aiText"></div>
@@ -381,7 +381,7 @@ tr:hover td{background:rgba(0,194,168,.04)}
     <div id="aiEmptyState" style="text-align:center;padding:60px 24px;color:var(--text-dim)">
       <span style="font-size:36px;display:block;margin-bottom:12px">✨</span>
       <div style="font-size:14px;margin-bottom:6px">AI Insights not enabled</div>
-      <div style="font-size:12px">Check the box above to generate a migration risk assessment powered by HuggingFace Mistral-7B</div>
+      <div style="font-size:12px">Check the box above to generate a migration risk assessment powered by HuggingFace (Qwen2.5-Coder)</div>
     </div>
   </div>
 </div>
@@ -666,7 +666,7 @@ async function getAiInsights() {
     }
 
     const d = await r.json();
-    document.getElementById('aiModelTag').textContent = d.model?.split('/').pop() || 'Mistral-7B';
+    document.getElementById('aiModelTag').textContent = d.model?.split('/').pop() || 'Qwen2.5-Coder-3B-Instruct';
     textDiv.textContent = d.insight;
     showToast('✨', 'AI insights generated');
   } catch(e) {
@@ -776,9 +776,10 @@ function downloadExcel() {
   // AI insights sheet if available
   const aiText = document.getElementById('aiText')?.textContent;
   if (aiText) {
+    const aiModel = document.getElementById('aiModelTag')?.textContent || 'unknown';
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
       ['AI Migration Risk Assessment'],
-      [`Model: Mistral-7B via HuggingFace`],[],
+      [`Model: ${aiModel} via HuggingFace`],[],
       [aiText]
     ]), 'AI Insights');
   }

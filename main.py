@@ -48,10 +48,9 @@ app.add_middleware(
 __version__ = "1.0.0"
 
 # HF retired the legacy api-inference.huggingface.co text-generation endpoint in
-# favor of an OpenAI-compatible chat-completions router. Mistral-7B-Instruct-v0.2
-# is still served (single provider: featherless-ai), just through the new router.
+# favor of an OpenAI-compatible chat-completions router.
 HF_API_URL = "https://router.huggingface.co/v1/chat/completions"
-HF_MODEL   = "mistralai/Mistral-7B-Instruct-v0.2"
+HF_MODEL   = "Qwen/Qwen2.5-Coder-3B-Instruct"
 HF_TOKEN   = os.getenv("HF_TOKEN", "")   # set via Render env var
 
 
@@ -523,7 +522,7 @@ class AIInsightRequest(BaseModel):
 @app.post("/ai-insights")
 async def ai_insights(req: AIInsightRequest):
     """
-    Send extracted SP metadata to HuggingFace Mistral-7B
+    Send extracted SP metadata to the configured HuggingFace model
     and return a migration risk narrative.
     """
     if not HF_TOKEN:
@@ -580,9 +579,9 @@ Provide:
 
 Be specific, reference actual table and schema names from the data. Keep response under 350 words."""
 
-    # Mistral-7B-Instruct's chat template has no "system" role (unlike Llama/etc.) —
-    # a system message here makes the provider's template renderer 400. Fold the
-    # persona into the single user turn instead.
+    # Some models' chat templates (e.g. Mistral-7B-Instruct) have no "system" role
+    # and 400 if one is sent. Folding the persona into a single user turn works
+    # across every model's template, so we don't need to special-case this per model.
     full_prompt = "You are a senior database migration architect. " + prompt
 
     try:

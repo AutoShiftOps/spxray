@@ -15,7 +15,7 @@ First public release.
 - Dialect auto-detection — T-SQL, PostgreSQL, MySQL, Oracle PL/SQL
 - FastAPI backend: `GET /health`, `POST /analyze`, `POST /ai-insights`
 - Single-file browser UI with 5 tabs and Excel export (SheetJS)
-- Opt-in AI migration risk narrative via HuggingFace Mistral-7B
+- Opt-in AI migration risk narrative via HuggingFace (Qwen2.5-Coder)
 - Report metadata (tool version, UTC timestamp, tier) on every response
 - Free/enterprise tier limits (`limits.py`)
 - Five-layer test suite — 68 tests, 4 tracked limitations ([TEST_PLAN.md](TEST_PLAN.md))

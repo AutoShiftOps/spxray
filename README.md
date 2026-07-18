@@ -227,7 +227,7 @@ constants). Current limits are always discoverable at `GET /health`.
 └─────────────────────────────┘        │    → returns JSON            │
                                        │                              │
                                        │  POST /ai-insights  (opt-in) │
-                                       │    → HuggingFace Mistral-7B  │
+                                       │    → HuggingFace (Qwen2.5)   │
                                        └──────────────────────────────┘
 ```
 
