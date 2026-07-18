@@ -580,6 +580,11 @@ Provide:
 
 Be specific, reference actual table and schema names from the data. Keep response under 350 words."""
 
+    # Mistral-7B-Instruct's chat template has no "system" role (unlike Llama/etc.) —
+    # a system message here makes the provider's template renderer 400. Fold the
+    # persona into the single user turn instead.
+    full_prompt = "You are a senior database migration architect. " + prompt
+
     try:
         response = requests.post(
             HF_API_URL,
@@ -587,8 +592,7 @@ Be specific, reference actual table and schema names from the data. Keep respons
             json={
                 "model":    HF_MODEL,
                 "messages": [
-                    {"role": "system", "content": "You are a senior database migration architect."},
-                    {"role": "user",   "content": prompt},
+                    {"role": "user", "content": full_prompt},
                 ],
                 "max_tokens":  500,
                 "temperature": 0.3,
@@ -613,7 +617,8 @@ Be specific, reference actual table and schema names from the data. Keep respons
     except requests.exceptions.Timeout:
         raise HTTPException(status_code=504, detail="HuggingFace API timeout. Model may be loading — retry in 30s.")
     except requests.exceptions.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"HuggingFace API error: {str(e)}")
+        body = e.response.text[:500] if e.response is not None else str(e)
+        raise HTTPException(status_code=502, detail=f"HuggingFace API error: {e} — {body}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI insight generation failed: {str(e)}")
 
