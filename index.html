@@ -369,7 +369,7 @@ tr:hover td{background:rgba(0,194,168,.04)}
       <div class="ai-panel-header">
         <div class="ai-panel-title">
           ✨ Migration Risk Assessment
-          <span class="ai-model-tag" id="aiModelTag">Qwen2.5-Coder-3B-Instruct</span>
+          <span class="ai-model-tag" id="aiModelTag">Qwen2.5-Coder-7B-Instruct</span>
         </div>
         <button class="btn btn-ghost btn-sm" onclick="getAiInsights()">↻ Regenerate</button>
       </div>
@@ -686,7 +686,7 @@ async function getAiInsights() {
     }
 
     const d = await r.json();
-    document.getElementById('aiModelTag').textContent = d.model?.split('/').pop() || 'Qwen2.5-Coder-3B-Instruct';
+    document.getElementById('aiModelTag').textContent = d.model?.split('/').pop() || 'Qwen2.5-Coder-7B-Instruct';
     textDiv.innerHTML = renderAiMarkdown(d.insight);
     showToast('✨', 'AI insights generated');
   } catch(e) {

@@ -50,7 +50,7 @@ __version__ = "1.0.0"
 # HF retired the legacy api-inference.huggingface.co text-generation endpoint in
 # favor of an OpenAI-compatible chat-completions router.
 HF_API_URL = "https://router.huggingface.co/v1/chat/completions"
-HF_MODEL   = "Qwen/Qwen2.5-Coder-3B-Instruct"
+HF_MODEL   = "Qwen/Qwen2.5-Coder-7B-Instruct"
 HF_TOKEN   = os.getenv("HF_TOKEN", "")   # set via Render env var
 
 
