@@ -235,6 +235,90 @@ def test_dialect_detection_tsql():
     assert "T-SQL" in detect_dialect("DECLARE @x INT; SELECT @x")
 
 
+# ── Bug fix: single-table fallback respects the qualified pass (formerly KL-8) ─
+
+def test_cross_apply_alias_does_not_leak_onto_the_single_table():
+    """
+    `CROSS APPLY`/`OUTER APPLY` aren't recognized FROM/JOIN keywords, so a
+    statement like this ends up with exactly ONE registered table
+    (dbo.Party) -- which used to make the "unqualified SELECT, single table
+    only" fallback fire and misattribute `h.OrderId` (the CROSS APPLY
+    alias's column) onto dbo.Party, because it blindly stripped every alias
+    prefix via `token.split('.')[-1]`. The qualified-columns pass had
+    already correctly declined to resolve `h` moments earlier in the same
+    statement; the fallback now respects that refusal instead of
+    re-tokenizing the same text blind.
+    """
+    sql = "SELECT p.Id, h.OrderId FROM dbo.Party p CROSS APPLY dbo.fn_Recent(p.Id) h"
+    physical, _ = parse_sp(sql)
+    assert "ID" in cols_of(physical, "DBO.PARTY")
+    assert "ORDERID" not in cols_of(physical, "DBO.PARTY")
+
+
+def test_recursive_cte_self_reference_does_not_leak_computed_column():
+    """
+    Same code path as the CROSS APPLY case above, hit by a self-referencing
+    recursive CTE instead: `oc.Depth` (a value computed only inside the CTE,
+    via `0 AS Depth` in the anchor member) used to get attributed to
+    hr.Employee, a table with no Depth column at all.
+    """
+    sql = """
+    ;WITH OrgChain AS (
+        SELECT e.EmployeeId, e.ManagerId, 0 AS Depth FROM hr.Employee e
+        UNION ALL
+        SELECT e.EmployeeId, e.ManagerId, oc.Depth + 1
+        FROM hr.Employee e INNER JOIN OrgChain oc ON e.ManagerId = oc.EmployeeId
+    )
+    SELECT oc.EmployeeId, oc.Depth FROM OrgChain oc
+    """
+    physical, _ = parse_sp(sql)
+    assert "EMPLOYEEID" in cols_of(physical, "HR.EMPLOYEE")
+    assert "DEPTH" not in cols_of(physical, "HR.EMPLOYEE")
+
+
+# ── Bug fix: MERGE alias resolution (formerly KL-9) ────────────────────────────
+
+def test_merge_target_and_using_source_aliases_resolve():
+    """
+    Two separate causes, both in build_alias_map:
+    (1) the MERGE branch required two consecutive whitespace matches
+        (`MERGE\\s+(?:INTO\\s+)?` followed by another `\\s+`) that ordinary
+        single-spaced "MERGE table" syntax never satisfies;
+    (2) USING wasn't in the alias-detection keyword list at all.
+    A third, separate cause needed STMT_SPLIT itself: it used to split a
+    MERGE's own `WHEN MATCHED THEN UPDATE SET ...` sub-clause into its own
+    statement chunk, severing it from the tgt/src aliases declared in the
+    MERGE header -- so even with (1) and (2) fixed, `tgt.Name`/`src.Name`
+    stayed unresolved until STMT_SPLIT stopped splitting after `THEN `.
+    """
+    sql = """
+    MERGE dbo.Party AS tgt
+    USING dbo.PartyStaging AS src
+    ON tgt.Id = src.Id
+    WHEN MATCHED THEN UPDATE SET tgt.Name = src.Name;
+    """
+    physical, _ = parse_sp(sql)
+    assert {"ID", "NAME"} <= cols_of(physical, "DBO.PARTY")
+    assert {"ID", "NAME"} <= cols_of(physical, "DBO.PARTYSTAGING")
+
+
+# ── Bug fix: OUTPUT ... INTO target table registered (formerly KL-10) ──────────
+
+def test_output_into_target_table_is_registered():
+    """
+    `OUTPUT ... INTO auditTable` genuinely writes rows into auditTable, but
+    no TABLE_OP_PATTERNS entry recognized it -- the audit table was silently
+    absent from the report. Registered as an INSERT-target table now.
+    """
+    sql = """
+    UPDATE dbo.Party SET Name = 'x'
+    OUTPUT inserted.Id, inserted.Name INTO audit.ChangeLog (Id, Name);
+    """
+    physical, _ = parse_sp(sql)
+    assert "AUDIT.CHANGELOG" in tables_of(physical)
+    assert "INSERT" in physical["AUDIT.CHANGELOG"]["ops"]
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))

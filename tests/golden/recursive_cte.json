@@ -1,0 +1,20 @@
+{
+  "dynamic_sql": false,
+  "tables": {
+    "HR.EMPLOYEE": {
+      "schema": "HR",
+      "base": "EMPLOYEE",
+      "ops": [
+        "SELECT"
+      ],
+      "aliases": [
+        "E"
+      ],
+      "columns": [
+        "EMPLOYEEID",
+        "EMPLOYEENAME",
+        "MANAGERID"
+      ]
+    }
+  }
+}

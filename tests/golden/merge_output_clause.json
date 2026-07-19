@@ -1,0 +1,43 @@
+{
+  "dynamic_sql": false,
+  "tables": {
+    "AUDIT.RATINGSYNCLOG": {
+      "schema": "AUDIT",
+      "base": "RATINGSYNCLOG",
+      "ops": [
+        "INSERT"
+      ],
+      "aliases": [],
+      "columns": []
+    },
+    "REFDATA.RATINGFEED": {
+      "schema": "REFDATA",
+      "base": "RATINGFEED",
+      "ops": [
+        "SELECT"
+      ],
+      "aliases": [
+        "SRC"
+      ],
+      "columns": [
+        "NEWRATING",
+        "PARTYID"
+      ]
+    },
+    "RISK.RATINGDETAILS": {
+      "schema": "RISK",
+      "base": "RATINGDETAILS",
+      "ops": [
+        "MERGE"
+      ],
+      "aliases": [
+        "TGT"
+      ],
+      "columns": [
+        "LASTSYNCDATE",
+        "PARTYID",
+        "REGIONRISKRATING"
+      ]
+    }
+  }
+}

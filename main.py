@@ -93,10 +93,19 @@ TABLE_OP_PATTERNS = [
     (r'\bMERGE\s+(?:INTO\s+)?((?:[\w]+\.)*[\w]+)', 'MERGE'),
     (r'\bTRUNCATE\s+TABLE\s+((?:[\w]+\.)*[\w]+)',   'TRUNCATE'),
     (r'\bUSING\s+((?:[\w]+\.)*[\w]+)',              'SELECT'),
+    # OUTPUT ... INTO writes the DML's deltas into a target table (commonly an
+    # audit table) -- genuinely written to, so INSERT. [^;]* stops the match
+    # at the statement's own terminator rather than risking a cross into an
+    # unrelated later INTO if this OUTPUT clause has no INTO of its own.
+    (r'\bOUTPUT\b[^;]*?\bINTO\s+((?:[\w]+\.)*[\w]+)', 'INSERT'),
 ]
 
 STMT_SPLIT = re.compile(
-    r'(?=\b(?:SELECT|INSERT|UPDATE|DELETE|MERGE|TRUNCATE)\b)',
+    # (?<!THEN ) -- a MERGE's own WHEN MATCHED/NOT MATCHED THEN UPDATE/INSERT/
+    # DELETE sub-clause is not a new top-level statement; splitting there
+    # (as this did before) severs it from the tgt/src aliases declared in the
+    # MERGE header, leaving that sub-clause with no alias context at all (KL-9).
+    r'(?<!THEN )(?=\b(?:SELECT|INSERT|UPDATE|DELETE|MERGE|TRUNCATE)\b)',
     re.IGNORECASE
 )
 
@@ -260,9 +269,14 @@ def resolve_cte(name, cte_src, cte_names, depth=0):
 def build_alias_map(stmt, cte_names):
     alias_map = {}
     pat = re.compile(
-        r'(?:FROM|JOIN|UPDATE|MERGE\s+(?:INTO\s+)?)\s+'
+        # MERGE's own \s+ lives INSIDE the optional INTO branch now, not
+        # after it too -- "MERGE table" (single space, no INTO) used to need
+        # two consecutive whitespace matches where ordinary SQL only has one,
+        # so the alias was silently never captured (KL-9). USING is also
+        # here now, for a MERGE's source-table alias (e.g. "USING x AS src").
+        r'(?:FROM|JOIN|UPDATE|USING|MERGE(?:\s+INTO)?)\s+'
         r'((?:[\w]+\.)*[\w]+)\s+(?:AS\s+)?([A-Za-z_]\w*)'
-        r'(?=\s|\(|$|ON\b|SET\b|USING\b|WHERE\b|WITH\b)',
+        r'(?=\s|\(|;|$|ON\b|SET\b|USING\b|WHERE\b|WITH\b)',
         re.IGNORECASE
     )
     for m in pat.finditer(stmt):
@@ -275,7 +289,7 @@ def build_alias_map(stmt, cte_names):
             alias_map[alias] = full
     # CTE direct alias
     cte_al = re.compile(
-        r'(?:FROM|JOIN)\s+([\w]+)\s+(?:AS\s+)?([A-Za-z_]\w*)(?=\s|\(|$|ON\b|WHERE\b)',
+        r'(?:FROM|JOIN)\s+([\w]+)\s+(?:AS\s+)?([A-Za-z_]\w*)(?=\s|\(|;|$|ON\b|WHERE\b)',
         re.IGNORECASE
     )
     for m in cte_al.finditer(stmt):
@@ -448,6 +462,7 @@ def parse_sp(sql: str):
                         physical[full]['aliases'].add(a)
 
         # Qualified columns
+        declined_qualified = set()  # exact "PREFIX.COL" refs seen and correctly NOT attributed
         for cm in re.finditer(r'\b([\w]+)\.([\w]+)\b', stmt):
             prefix = cm.group(1).upper()
             col    = cm.group(2).upper()
@@ -455,6 +470,7 @@ def parse_sp(sql: str):
                 continue
             if not re.match(r'^[A-Z_][A-Z0-9_]*$', col):
                 continue
+            original_col = col
             target = resolved.get(prefix)
             if not target:
                 for k in physical:
@@ -472,31 +488,44 @@ def parse_sp(sql: str):
                 aliased = alias_map.get(prefix)
                 if aliased and aliased.upper() in cte_names:
                     source_cte = aliased.upper()
+
+            invented = False
             if source_cte and col in cte_output_map.get(source_cte, {}):
                 mapped_table, mapped_col = cte_output_map[source_cte][col]
-                if mapped_col is None:
-                    continue  # expression-derived output column -- never invent
-                if mapped_col in SKIP_WORDS:
-                    continue  # defensive: translated name must not be a keyword
-                col = mapped_col
-                if mapped_table:
-                    target = mapped_table
-                elif source_cte in cte_src:
-                    target = cte_src[source_cte]
+                if mapped_col is None or mapped_col in SKIP_WORDS:
+                    invented = True  # expression-derived / defensive -- never invent
+                else:
+                    col = mapped_col
+                    if mapped_table:
+                        target = mapped_table
+                    elif source_cte in cte_src:
+                        target = cte_src[source_cte]
 
-            if target and target in physical:
+            if not invented and target and target in physical:
                 physical[target]['columns'].add(col)
+            else:
+                # The qualified pass saw this exact reference and correctly
+                # declined to attribute it (unresolved alias -- e.g. a CROSS
+                # APPLY/OUTER APPLY alias or a recursive CTE's own computed
+                # column -- or a known-but-unresolvable CTE output). Remember
+                # it so the unqualified single-table fallback below, which
+                # re-tokenizes this same SELECT list, doesn't override that
+                # refusal (KL-6/KL-8 -- same defect class as KL-1).
+                declined_qualified.add(f"{prefix}.{original_col}")
 
         # Unqualified SELECT — single table only
         for bm in re.finditer(r'\bSELECT\b(.*?)\bFROM\b', stmt, re.IGNORECASE | re.DOTALL):
             block = re.sub(r'\(.*?\)', '', bm.group(1), flags=re.DOTALL)
             block = re.sub(r"\bAS\s+(?:'[^']*'|\"[^\"]*\"|[\w_]+)", '', block, flags=re.IGNORECASE)
-            for token in re.split(r'[,\s]+', block):
-                token = token.split('.')[-1].upper().strip()
+            for raw_token in re.split(r'[,\s]+', block):
+                raw_token = raw_token.strip()
+                token = raw_token.split('.')[-1].upper().strip()
                 if not token or token == '*' or token in SKIP_WORDS:
                     continue
                 if not re.match(r'^[A-Z_][A-Z0-9_]*$', token):
                     continue
+                if '.' in raw_token and raw_token.upper() in declined_qualified:
+                    continue  # respect the qualified pass's refusal above
                 if len(stmt_tables) == 1 and stmt_tables[0] in physical:
                     physical[stmt_tables[0]]['columns'].add(token)
 

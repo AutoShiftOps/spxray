@@ -33,13 +33,15 @@ FIXTURES_UNDER_GOLDEN = [
     "alias_collision.sql",
     "postgres_proc.sql",
     "deeply_nested_subquery.sql",
-    "utf16_bom.sql",  # KL-11 fixed -- read_bytes_safe now decodes UTF-16 BOMs
-    # cross_apply_tvf.sql, recursive_cte.sql, and merge_output_clause.sql,
-    # cte_table_collision_variant.sql are DELIBERATELY not here: each still
-    # exposes a bug (KL-7b, KL-8, KL-9, KL-10) and a golden snapshot would
-    # bless that wrong output as correct. They're still covered by C1
-    # (determinism) below -- a bug should at least be a STABLE bug -- but
-    # never by a "this output is right" golden.
+    "utf16_bom.sql",         # KL-11 fixed -- read_bytes_safe now decodes UTF-16 BOMs
+    "cross_apply_tvf.sql",   # KL-8 fixed
+    "recursive_cte.sql",     # KL-8 fixed
+    "merge_output_clause.sql",  # KL-9 and KL-10 fixed
+    # cte_table_collision_variant.sql is DELIBERATELY not here: it still
+    # exposes a bug (KL-7b) and a golden snapshot would bless that wrong
+    # output as correct. It's still covered by C1 (determinism) below -- a
+    # bug should at least be a STABLE bug -- but never by a "this output is
+    # right" golden.
 ]
 
 

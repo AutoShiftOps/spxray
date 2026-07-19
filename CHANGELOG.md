@@ -18,7 +18,7 @@ First public release.
 - Opt-in AI migration risk narrative via HuggingFace (Qwen2.5-Coder)
 - Report metadata (tool version, UTC timestamp, tier) on every response
 - Free/enterprise tier limits (`limits.py`)
-- Five-layer test suite — 91 tests, 9 tracked limitations ([TEST_PLAN.md](TEST_PLAN.md))
+- Five-layer test suite — 95 tests, 6 tracked limitations ([TEST_PLAN.md](TEST_PLAN.md))
 - Six new fixture-corpus additions targeting hard structural patterns: `CROSS
   APPLY`/`OUTER APPLY`, recursive CTEs, `MERGE ... OUTPUT INTO`, 3-level
   nested derived-table subqueries, a second CTE/table name-collision variant,
@@ -53,6 +53,40 @@ First public release.
   empty. A new contract test (`test_C3_utf16_file_never_returns_empty_success`)
   pins the guarantee this closes: a UTF-16 file must either parse correctly
   or raise a clear error — it may never silently succeed with nothing in it.
+- **KL-8: a single-table fallback no longer overrides the qualified pass's
+  correct refusals.** `CROSS APPLY`/`OUTER APPLY` aliases and a recursive
+  CTE's own self-referencing computed column (e.g. `oc.Depth` from
+  `0 AS Depth` in the anchor member) used to leak onto whichever one
+  physical table was in scope, because the "unqualified SELECT, single
+  table only" fallback tokenized the SELECT list independently and blindly
+  stripped every alias prefix via `token.split('.')[-1]` — including
+  references the qualified-columns pass, moments earlier in the same
+  statement, had already correctly declined to resolve. The fallback now
+  tracks and respects those declines. Fixing this exposed a second, older
+  bug in the same area: `build_alias_map`'s alias-detection regex never
+  matched a statement like `SELECT p.Col FROM t p;` (alias immediately
+  before a semicolon, no trailing `WHERE`) — the lookahead had no semicolon
+  alternative. Previously invisible because the (now-removed) fallback
+  redundancy silently compensated for it; closing the semicolon gap was
+  the fix that made the KL-8 fix actually hold rather than regressing
+  `alias_collision.sql`/`crud_and_dynamic.sql`. Same defect class as KL-1.
+- **KL-9: `MERGE target AS tgt` / `USING source AS src` aliases now
+  resolve.** Two regex bugs in `build_alias_map`: the MERGE branch required
+  two consecutive whitespace matches that ordinary single-spaced `MERGE
+  table` syntax never satisfies, and `USING` wasn't in the alias-detection
+  keyword list at all. A third, separate defect in `STMT_SPLIT` also had to
+  be fixed for this to fully resolve: it split a MERGE's own `WHEN MATCHED
+  THEN UPDATE SET ...` sub-clause into its own statement chunk, severing it
+  from the `tgt`/`src` aliases declared in the MERGE header — so even with
+  the alias-regex fixed, `tgt.Name`/`src.Name` stayed unresolved until
+  `STMT_SPLIT` stopped splitting immediately after `THEN `.
+- **KL-10: `OUTPUT ... INTO auditTable` now registers the audit table.** No
+  `TABLE_OP_PATTERNS` entry recognized `OUTPUT ... INTO`, so a table
+  genuinely written to by every MERGE/UPDATE/DELETE using this common
+  audit-logging pattern was silently absent from the report. Registered as
+  an INSERT-target table now (its column list from the `INTO table
+  (col_list)` clause is not parsed — out of scope for this fix, a future
+  KL if ever needed).
 
 ### Known limitations
 See [README](README.md#honest-limitations). Each is pinned by a strict-xfail test.
@@ -63,27 +97,13 @@ with a physical table (e.g. `WITH Country AS (...)` alongside a real
 with no warning. The exclusion check that keeps CTE names out of the table
 list (required for C2) matches on bare base name only, across all schemas —
 so it also excludes any genuinely different table that happens to share that
-name. **Confirmed via the fixture corpus batch below to generalize**: it drops
-*any* table sharing that name anywhere in the procedure, even one referenced
-in a completely unrelated statement with no relationship to the colliding CTE.
-This is more serious than KL-1/KL-6/KL-8 (wrong or missing columns): a table
-a migration plan needs to know about can be silently absent, indistinguishable
+name. **Confirmed via the fixture corpus batch to generalize**: it drops *any*
+table sharing that name anywhere in the procedure, even one referenced in a
+completely unrelated statement with no relationship to the colliding CTE.
+This is more serious than KL-1/KL-6 (wrong or missing columns): a table a
+migration plan needs to know about can be silently absent, indistinguishable
 from "this procedure never touches it." Avoid naming CTEs after real tables
 until KL-7 is fixed.
 
-**Known issues — table-level, from the fixture-corpus growth batch:**
-- **KL-9**: `MERGE target AS tgt` / `USING source AS src` never resolve their
-  aliases (a regex bug for MERGE, a missing keyword for USING) — both tables
-  are correctly registered as touched, but end up with **zero columns each**,
-  silently.
-- **KL-10**: `OUTPUT ... INTO auditTable` is not recognized by any table
-  pattern — the audit table being written to **never appears in the report
-  at all**, same severity as KL-7.
-- **KL-8** (narrower, column-level like KL-1/KL-6 — same defect class: see its
-  test docstring): `CROSS APPLY`/`OUTER APPLY` aliases, and a recursive CTE's
-  self-reference to its own CTE-computed column, can leak a column from an
-  unrelated source onto whichever single physical table is in scope for that
-  statement.
-
-KL-11 (UTF-16 silently producing an empty report) is now fixed — see Fixed,
-above.
+KL-2 through KL-6 and KL-7b remain documented, honest edge cases — see the
+README table for what each one is and why it hasn't been fixed yet.

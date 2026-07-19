@@ -7,7 +7,9 @@
       "ops": [
         "SELECT"
       ],
-      "aliases": [],
+      "aliases": [
+        "P"
+      ],
       "columns": [
         "PRODUCTNAME"
       ]
@@ -33,7 +35,9 @@
       "ops": [
         "SELECT"
       ],
-      "aliases": [],
+      "aliases": [
+        "P"
+      ],
       "columns": [
         "PERSONNAME"
       ]

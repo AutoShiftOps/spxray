@@ -16,7 +16,9 @@
       "ops": [
         "SELECT"
       ],
-      "aliases": [],
+      "aliases": [
+        "C"
+      ],
       "columns": [
         "CUSTOMERID"
       ]
@@ -37,7 +39,9 @@
         "SELECT",
         "UPDATE"
       ],
-      "aliases": [],
+      "aliases": [
+        "I"
+      ],
       "columns": [
         "PRODUCTID",
         "STOCKLEVEL",

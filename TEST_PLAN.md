@@ -3,7 +3,7 @@
 **Purpose:** every change must prove it did not break what already worked.
 This document defines how that is enforced, not aspirationally, but in CI.
 
-**Status:** 68 passing · 4 tracked limitations (xfail) · CI-gated on every PR
+**Status:** 88 passing · 6 tracked limitations (xfail) · CI-gated on every PR
 
 ---
 
@@ -36,12 +36,12 @@ tests/
 ├── fixtures/*.sql              real-world SQL inputs (sanitized)
 ├── golden/*.json               committed output snapshots
 │
-├── test_contracts.py           LAYER 1 — non-negotiable promises      (18)
-├── test_golden.py              LAYER 2 — output regression gate        (4)
-├── test_known_limitations.py   LAYER 3 — tracked defects (xfail)       (4)
-├── test_tiers.py               LAYER 4 — commercial boundary          (17)
-├── test_api.py                 LAYER 5 — HTTP contract                (16)
-└── test_parser.py              unit regressions — one per fixed bug   (13)
+├── test_contracts.py           LAYER 1 — non-negotiable promises      (26)
+├── test_golden.py              LAYER 2 — output regression gate        (9)
+├── test_known_limitations.py   LAYER 3 — tracked defects (xfail)       (7)
+├── test_tiers.py               LAYER 4 — commercial boundary          (19)
+├── test_api.py                 LAYER 5 — HTTP contract                (14)
+└── test_parser.py              unit regressions — one per fixed bug   (20)
 ```
 
 ### Layer 1 — Contract tests (`test_contracts.py`)
@@ -97,10 +97,15 @@ Nothing rots silently. The README limitations table must stay in sync with this 
 
 | ID | Defect | Fix path |
 |---|---|---|
-| **KL-1** | CTE output aliases reported as physical columns | Needs AST backend |
 | **KL-2** | Casing inconsistent between `[Bracketed]` and plain identifiers | Cosmetic, v1.1 |
 | **KL-3** | Multi-hop CTE chains don't fully resolve | Needs AST backend |
 | **KL-4** | Dynamic SQL tables not extracted | **Permanent by design** — XPASS here means someone added runtime execution, which is a security review |
+| **KL-5** | Expression-derived CTE output columns don't surface the real operand column | Needs expression parsing |
+| **KL-6** | A column referenced through a CTE alias is attributed even when the CTE never outputs it | Needs a per-CTE output allow-list |
+| **KL-7** / **KL-7b** | A physical table is dropped entirely when its base name collides with a same-named CTE, anywhere in the procedure | **Most severe on this list** — a table silently missing, not a column |
+
+KL-1, KL-8, KL-9, KL-10, KL-11 were fixed and promoted to `test_parser.py`/
+`test_contracts.py` — see [CHANGELOG](CHANGELOG.md#fixed).
 
 ### Layer 4 — Tier tests (`test_tiers.py`)
 

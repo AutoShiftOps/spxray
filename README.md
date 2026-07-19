@@ -192,9 +192,6 @@ cannot silently rot.
 | **KL-5** | Expression-derived CTE output columns (`SUM(Amount) AS 'Total'`) don't surface the real column read inside the expression | Never invents the alias as a column (correct) — but doesn't yet parse into simple aggregate expressions either. Needs expression parsing |
 | **KL-6** | A column referenced through a CTE alias is attributed even when the CTE never outputs a column by that name | Needs a per-CTE output allow-list, not just alias→source translation (KL-1's fix) |
 | **KL-7** | ⚠️ A physical table is dropped from the report entirely when its base name collides with a same-named CTE (e.g. a CTE named `Country` hides `dbo.Country`) — confirmed to generalize: an unrelated table sharing that name is dropped anywhere in the procedure, not just inside the colliding CTE | The CTE-exclusion check compares bare base names only, across all schemas, with no locality. **Most severe limitation on this list** — a table silently missing, not a column |
-| **KL-8** | A `CROSS APPLY`/`OUTER APPLY` alias (or a recursive CTE's self-reference) leaks a column from an unrelated source onto the one physical table in scope | The single-table "unqualified SELECT" fallback strips any alias prefix via `token.split('.')[-1]`, not just genuine schema-qualification |
-| **KL-9** | ⚠️ `MERGE target AS tgt` / `USING source AS src` aliases are never resolved — their columns silently fail to attribute anywhere | Regex bug: the MERGE branch requires two consecutive whitespace matches that ordinary single-spaced SQL never has; USING isn't in the alias-detection keyword list at all |
-| **KL-10** | ⚠️ `OUTPUT ... INTO auditTable` — the audit table being written to never appears in the report | No `TABLE_OP_PATTERNS` entry recognizes `OUTPUT ... INTO`. Same severity as KL-7: a written-to table silently missing |
 
 Nothing is silently dropped — everything the parser can't resolve is labeled as
 such in the output. We would rather show you a gap than invent a table.
@@ -263,7 +260,7 @@ Interactive docs at `/docs` (Swagger) when the backend is running.
 ## Testing
 
 ```bash
-pytest tests/ -v          # 68 passing, 4 tracked limitations
+pytest tests/ -v          # 88 passing, 6 tracked limitations
 ```
 
 Five layers, all CI-gated on every PR — see **[TEST_PLAN.md](TEST_PLAN.md)**:
