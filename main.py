@@ -102,7 +102,24 @@ STMT_SPLIT = re.compile(
 
 
 def read_bytes_safe(raw: bytes) -> str:
-    """Decode bytes trying common SQL file encodings."""
+    """
+    Decode bytes trying common SQL file encodings.
+
+    A UTF-16 BOM (\\xff\\xfe LE or \\xfe\\xff BE) is checked FIRST and
+    unambiguous -- Python's 'utf-16' codec detects the endianness from it and
+    strips it. Without this check, utf-8 decoding of UTF-16 bytes doesn't
+    raise (most ASCII-range UTF-16LE bytes are individually valid UTF-8), so
+    it silently "succeeds" into NUL-interleaved garbage that then fails every
+    parser regex -- a confident-looking empty report, not an error (KL-11).
+    If the BOM is present but the bytes aren't actually valid UTF-16, fall
+    through to the encoding list below rather than raising, matching this
+    function's existing guarantee of always returning a string.
+    """
+    if raw.startswith(b'\xff\xfe') or raw.startswith(b'\xfe\xff'):
+        try:
+            return raw.decode('utf-16')
+        except UnicodeDecodeError:
+            pass
     if raw.startswith(b'\xef\xbb\xbf'):
         raw = raw[3:]
     for enc in ['utf-8', 'windows-1252', 'cp1252', 'latin-1']:

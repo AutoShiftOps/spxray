@@ -43,8 +43,15 @@ def enterprise_tier(monkeypatch):
 
 
 def sql_fixture(name: str) -> str:
-    """Load a .sql fixture as text."""
-    return (FIXTURES / name).read_text(encoding="utf-8")
+    """
+    Load a .sql fixture the same way /analyze does: raw bytes through
+    read_bytes_safe, not a hardcoded UTF-8 text read. Fixtures are UTF-8 in
+    practice except utf16_bom.sql (deliberately saved as UTF-16LE with a BOM
+    to exercise the decoder) -- read_bytes_safe tries utf-8 first, so this is
+    a no-op for every other fixture; only utf16_bom.sql actually depends on it.
+    """
+    from main import read_bytes_safe
+    return read_bytes_safe((FIXTURES / name).read_bytes())
 
 
 def tables_of(physical) -> set:

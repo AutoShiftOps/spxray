@@ -195,6 +195,22 @@ def test_utf8_bom_stripped():
     assert not text.startswith("\ufeff")
 
 
+def test_utf16_bom_decoded_not_garbled():
+    """
+    Was tests/test_known_limitations.py::test_KL11 (xfail). Promoted here now
+    that read_bytes_safe detects a UTF-16 BOM and decodes with the 'utf-16'
+    codec (which auto-detects LE/BE from the BOM) before falling back to the
+    utf-8/windows-1252/cp1252/latin-1 chain. Without this, utf-8 decoding of
+    UTF-16 bytes doesn't raise -- it silently produces NUL-interleaved
+    garbage that fails every parser regex. If this regresses, KL-11 is back.
+    """
+    raw = "SELECT e.Id, e.Name FROM hr.Employee e".encode("utf-16")
+    text = read_bytes_safe(raw)
+    physical, _ = parse_sp(text)
+    assert "HR.EMPLOYEE" in tables_of(physical)
+    assert {"ID", "NAME"} <= cols_of(physical, "HR.EMPLOYEE")
+
+
 # ── Dynamic SQL flag ─────────────────────────────────────────────────────────
 
 def test_dynamic_sql_flagged():

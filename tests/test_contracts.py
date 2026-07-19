@@ -32,9 +32,22 @@ from conftest import sql_fixture, tables_of, cols_of
     "crud_and_dynamic.sql",
     "alias_collision.sql",
     "postgres_proc.sql",
+    "deeply_nested_subquery.sql",
+    "cross_apply_tvf.sql",
+    "recursive_cte.sql",
+    "merge_output_clause.sql",
+    "cte_table_collision_variant.sql",
+    "utf16_bom.sql",
 ])
 def test_C1_parsing_is_deterministic(fixture):
-    """Five identical runs must produce byte-identical structures."""
+    """
+    Five identical runs must produce byte-identical structures.
+
+    Deliberately includes fixtures that expose known bugs (KL-7b..KL-11):
+    determinism is orthogonal to correctness -- a bug should at least be a
+    STABLE, reproducible bug, not a source of flakiness on top of being wrong.
+    This is not a golden/correctness check (see test_golden.py).
+    """
     sql = sql_fixture(fixture)
     runs = []
     for _ in range(5):
@@ -90,6 +103,27 @@ def test_C3_decoder_preserves_byte_count():
     raw = b"SELECT 1 -- caf\xe9 \x96 test"
     text = read_bytes_safe(raw)
     assert len(text) == len(raw), "decoder changed character count"
+
+
+def test_C3_utf16_file_never_returns_empty_success():
+    """
+    A UTF-16LE-with-BOM file (a real "Save As" option in SSMS) must either be
+    correctly decoded and parsed, or raise a clear error -- it must NEVER
+    silently succeed with an empty report. Before this fix (KL-11), utf-8
+    decoding of UTF-16 bytes didn't raise: most ASCII-range UTF-16LE bytes
+    are individually valid UTF-8, so it silently "succeeded" into
+    NUL-interleaved garbage that then failed every parser regex, returning a
+    confident-looking empty result -- indistinguishable from "this file
+    genuinely has no tables in it".
+    """
+    raw = "SELECT e.Id FROM hr.Employee e".encode("utf-16")
+    try:
+        text = read_bytes_safe(raw)
+    except Exception:
+        return  # a clear, visible error is an acceptable outcome too
+    physical, _ = parse_sp(text)
+    assert tables_of(physical), \
+        "UTF-16 content was silently lost -- empty success, the one banned outcome"
 
 
 # ── C4: Never invent, never guess ─────────────────────────────────────────────

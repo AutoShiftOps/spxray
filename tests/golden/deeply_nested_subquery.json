@@ -1,0 +1,20 @@
+{
+  "dynamic_sql": false,
+  "tables": {
+    "DBO.PARTY": {
+      "schema": "DBO",
+      "base": "PARTY",
+      "ops": [
+        "SELECT"
+      ],
+      "aliases": [
+        "P"
+      ],
+      "columns": [
+        "ISACTIVE",
+        "PARTYID",
+        "PARTYNAME"
+      ]
+    }
+  }
+}

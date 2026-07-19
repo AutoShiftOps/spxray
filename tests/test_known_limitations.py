@@ -152,3 +152,128 @@ def test_KL7_physical_table_dropped_when_name_collides_with_cte():
     physical, _ = parse_sp(sql)
     assert "DBO.COUNTRY" in tables_of(physical), \
         "a same-named CTE caused the physical table to be dropped entirely"
+
+
+@pytest.mark.xfail(strict=True, reason="KL-7: confirmed to generalize -- an unrelated table sharing a CTE's name is dropped anywhere in the procedure, not just references reachable through the colliding CTE")
+def test_KL7b_collision_drops_unrelated_same_named_table_anywhere_in_procedure():
+    """
+    A CTE named "Product", built from an entirely different table
+    (dbo.CaseFile), coexists with a COMPLETELY SEPARATE statement that
+    directly queries the real dbo.Product -- never through the CTE at all.
+    dbo.Product still vanishes. Confirms KL-7's exclusion check
+    (`base in cte_names`) is a blunt, procedure-wide set-membership test with
+    no locality: it drops every table sharing that bare name anywhere in the
+    procedure, not just references reachable through the colliding CTE.
+
+    First observed via tests/fixtures/cte_table_collision_variant.sql.
+    """
+    sql = """
+    ;WITH Product AS (SELECT c.CaseId FROM dbo.CaseFile c)
+    SELECT p.CaseId FROM Product p;
+
+    SELECT sp.Id FROM dbo.Product sp;
+    """
+    physical, _ = parse_sp(sql)
+    assert "DBO.PRODUCT" in tables_of(physical), \
+        "an unrelated table was dropped just for sharing a name with a CTE"
+
+
+@pytest.mark.xfail(strict=True, reason="KL-8: the single-table unqualified-SELECT fallback strips ANY alias prefix, misattributing columns from an unrelated source")
+def test_KL8_unqualified_select_fallback_misattributes_other_alias_columns():
+    """
+    `SELECT p.Id, h.OrderId FROM dbo.Party p CROSS APPLY dbo.fn_Recent(p.Id) h`
+    -- CROSS APPLY isn't a recognized FROM/JOIN keyword, so stmt_tables ends
+    up with exactly ONE table (dbo.Party), and the "unqualified SELECT --
+    single table only" fallback in parse_sp fires. That fallback tokenizes
+    the whole SELECT list and does `token.split('.')[-1]` on every token to
+    strip schema-qualification -- but this ALSO strips a genuine alias prefix
+    like `h.`, so 'h.OrderId' becomes bare 'OrderId' and gets attributed to
+    dbo.Party even though it has nothing to do with that table. The fallback
+    has no idea some of these tokens were already (safely) left unresolved by
+    the qualified-columns pass moments earlier.
+
+    First observed via tests/fixtures/cross_apply_tvf.sql. The exact same
+    code path is hit by tests/fixtures/recursive_cte.sql: a self-referencing
+    recursive CTE's `oc.Depth` (a value computed only inside the CTE, via
+    `0 AS Depth` in the anchor member) gets attributed to hr.Employee, a
+    table that has no Depth column at all.
+
+    Same defect CLASS as KL-1 (fixed) and KL-6, though a different code path:
+    a column gets attributed on the strength of ONE fallible signal, without
+    cross-checking a SEPARATE signal already computed elsewhere in the same
+    pass that says the attribution is wrong.
+      - KL-1: the alias resolved to a physical table, full stop -- without
+        checking the CTE's own output-alias map (extract_cte_output_map) for
+        whether that name was a renamed column.
+      - KL-6: same map, but for whether the name was ever output AT ALL.
+      - KL-8: the *qualified*-columns pass, moments earlier in the exact same
+        statement, already (correctly) declined to resolve this reference --
+        the *unqualified* single-table fallback reprocesses the same text and
+        overrides that correct refusal, unaware it happened.
+    A fix that makes the single-table fallback skip tokens the qualified pass
+    already looked at (rather than re-tokenizing the same text blind) would
+    close KL-8 and hand KL-6 a natural place to plug into as well.
+    """
+    sql = "SELECT p.Id, h.OrderId FROM dbo.Party p CROSS APPLY dbo.fn_Recent(p.Id) h"
+    physical, _ = parse_sp(sql)
+    assert "ORDERID" not in cols_of(physical, "DBO.PARTY"), \
+        "a column from an unrelated alias (h) was attributed to dbo.Party"
+
+
+@pytest.mark.xfail(strict=True, reason="KL-9: MERGE target and USING source aliases are never captured, so their columns silently fail to resolve")
+def test_KL9_merge_target_and_using_source_aliases_not_resolved():
+    """
+    `MERGE dbo.Party AS tgt USING dbo.PartyStaging AS src ON tgt.Id = src.Id
+    WHEN MATCHED THEN UPDATE SET tgt.Name = src.Name` -- both alias->table
+    bindings should be captured, so tgt.Id/tgt.Name attribute to dbo.Party
+    and src.Id/src.Name attribute to dbo.PartyStaging. Neither does.
+
+    Two separate causes in build_alias_map's main pattern:
+      r'(?:FROM|JOIN|UPDATE|MERGE\\s+(?:INTO\\s+)?)\\s+((?:[\\w]+\\.)*[\\w]+)...'
+    (1) The MERGE branch is `MERGE\\s+(?:INTO\\s+)?` immediately followed by
+        ANOTHER required `\\s+` outside the group. Plain "MERGE table" (one
+        space, no INTO) needs the inner `\\s+` to consume that one space,
+        leaving nothing for the outer mandatory `\\s+` -- the whole pattern
+        never matches for ordinary single-spaced MERGE syntax.
+    (2) USING is not in the alias-detection keyword list at all
+        (FROM|JOIN|UPDATE|MERGE only), so 'src' is never bound regardless.
+
+    First observed via tests/fixtures/merge_output_clause.sql, where
+    risk.RatingDetails and refdata.RatingFeed are both correctly registered
+    as touched (TABLE_OP_PATTERNS does include MERGE and USING) but end up
+    with zero columns each.
+    """
+    sql = """
+    MERGE dbo.Party AS tgt
+    USING dbo.PartyStaging AS src
+    ON tgt.Id = src.Id
+    WHEN MATCHED THEN UPDATE SET tgt.Name = src.Name;
+    """
+    physical, _ = parse_sp(sql)
+    assert {"ID", "NAME"} <= cols_of(physical, "DBO.PARTY"), \
+        f"MERGE target alias (tgt) columns not resolved: {cols_of(physical, 'DBO.PARTY')}"
+    assert {"ID", "NAME"} <= cols_of(physical, "DBO.PARTYSTAGING"), \
+        f"MERGE USING alias (src) columns not resolved: {cols_of(physical, 'DBO.PARTYSTAGING')}"
+
+
+@pytest.mark.xfail(strict=True, reason="KL-10: OUTPUT ... INTO's target table is not recognized -- a written-to table can be silently missing from the report")
+def test_KL10_output_into_target_table_not_recognized():
+    """
+    `... OUTPUT inserted.Id, inserted.Name INTO audit.ChangeLog (Id, Name);`
+    -- audit.ChangeLog is genuinely written to (every OUTPUT INTO writes
+    rows), but none of TABLE_OP_PATTERNS recognizes "OUTPUT ... INTO" as a
+    table reference, so it never appears in the report at all. Same severity
+    class as KL-7: a physical table a migration plan needs to know about,
+    silently absent, with no flag or warning.
+
+    First observed via tests/fixtures/merge_output_clause.sql, where
+    audit.RatingSyncLog (the MERGE's OUTPUT INTO target) never appears even
+    though the MERGE and USING tables are both correctly registered.
+    """
+    sql = """
+    UPDATE dbo.Party SET Name = 'x'
+    OUTPUT inserted.Id, inserted.Name INTO audit.ChangeLog (Id, Name);
+    """
+    physical, _ = parse_sp(sql)
+    assert "AUDIT.CHANGELOG" in tables_of(physical), \
+        "OUTPUT INTO target table is missing from the report"
