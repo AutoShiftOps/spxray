@@ -122,6 +122,34 @@ def test_C4_keywords_never_reported_as_columns():
         assert not leaked, f"SQL keywords reported as columns on {key}: {leaked}"
 
 
+def test_C4_cte_output_alias_translation_does_not_reopen_the_literal_hole():
+    """
+    KL-1's fix (extract_cte_output_map, main.py) reads a SECOND copy of the
+    SQL that skips mask_string_literals -- needed to recover output-alias text
+    like `AS 'Party ID'`, which the masked pipeline nulls out by design. That
+    second pass must never be allowed to leak a table name sitting inside an
+    ordinary string literal back into the report; it exists only to resolve
+    alias->source-column bindings, never to detect tables.
+
+    This CTE body carries both a real output alias (Id AS 'Foo') and a data
+    literal containing a fake FROM clause in the SAME WHERE clause the
+    alias-preserving pass also parses (to resolve JOIN-alias qualifiers) --
+    the two must not interact.
+    """
+    sql = (
+        ";WITH X AS ("
+        "SELECT Id AS 'Foo' FROM dbo.Real WHERE Note='x FROM dbo.Phantom'"
+        ") SELECT X.[Foo] FROM X"
+    )
+    physical, _ = parse_sp(sql)
+    assert "DBO.PHANTOM" not in tables_of(physical), \
+        "string literal content invented a phantom table"
+    assert "ID" in cols_of(physical, "DBO.REAL"), \
+        "the real source column must still be reported"
+    assert "FOO" not in cols_of(physical, "DBO.REAL") and "Foo" not in cols_of(physical, "DBO.REAL"), \
+        "the output alias must not be reported as a physical column"
+
+
 # ── C5: Dynamic SQL honesty ───────────────────────────────────────────────────
 
 @pytest.mark.parametrize("sql", [

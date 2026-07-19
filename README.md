@@ -135,7 +135,7 @@ waste your time.
 
 - Migration dependency graph (which procedures share tables → sequencing)
 - Batch CLI for estate-scale runs
-- AST backend for the SELECT-list parsing that fixes KL-1 and KL-3
+- AST backend for the SELECT-list parsing that fixes KL-3
 
 ## How the parser works
 
@@ -175,7 +175,7 @@ TRY/CATCH, DECLARE and control flow simply aren't in the tree. General SQL Parse
 handles it and is commercial. So parsing *inside* T-SQL procedure bodies is
 free-but-falls-back or works-but-costs-money. A hand-built engine is normally the
 wrong answer; here it's the only free one. (A hybrid — regex to split statements,
-sqlglot for the SELECT lists — is the v1.2 roadmap item and would fix KL-1/KL-3.)
+sqlglot for the SELECT lists — is the v1.2 roadmap item and would fix KL-3.)
 
 ## Honest limitations
 
@@ -186,10 +186,12 @@ cannot silently rot.
 
 | ID | Limitation | Why |
 |---|---|---|
-| **KL-1** | CTE output aliases (`Id AS 'Party ID'`) are reported as physical columns | Needs alias→source binding; regex can't. Planned AST backend fixes it |
 | **KL-2** | Casing differs between `[Bracketed]` and plain identifiers | Cosmetic; v1.1 |
 | **KL-3** | Multi-hop CTE chains (CTE→CTE→table) resolve partially | Needs AST backend |
 | **KL-4** | Dynamic SQL (`EXEC`, `sp_executesql`) tables not extracted | **Permanent by design.** Table names are runtime strings. Flagged ⚠, never guessed |
+| **KL-5** | Expression-derived CTE output columns (`SUM(Amount) AS 'Total'`) don't surface the real column read inside the expression | Never invents the alias as a column (correct) — but doesn't yet parse into simple aggregate expressions either. Needs expression parsing |
+| **KL-6** | A column referenced through a CTE alias is attributed even when the CTE never outputs a column by that name | Needs a per-CTE output allow-list, not just alias→source translation (KL-1's fix) |
+| **KL-7** | ⚠️ A physical table is dropped from the report entirely when its base name collides with a same-named CTE (e.g. a CTE named `Country` hides `dbo.Country`) | The CTE-exclusion check compares bare base names only, across all schemas. **Most severe limitation on this list** — a table silently missing, not a column |
 
 Nothing is silently dropped — everything the parser can't resolve is labeled as
 such in the output. We would rather show you a gap than invent a table.

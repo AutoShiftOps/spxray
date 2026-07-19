@@ -84,19 +84,65 @@ def test_unqualified_columns_single_table():
 # ── Bug fix: bracketed multi-word names ──────────────────────────────────────
 
 def test_bracketed_multiword_columns():
-    """[Party ID] must survive as a single column, not split into two tokens."""
+    """[Party ID] must survive as a single column, not split into two tokens.
+
+    Uses a direct reference (no CTE) so this stays isolated from CTE
+    output-alias translation (see test_KL1... in this file for that case) --
+    a bracketed multi-word name that genuinely IS a column should pass
+    through unsplit regardless of whether any CTE is involved.
+    """
+    sql = "SELECT p.[Party ID] FROM dbo.Party p"
+    physical, _ = parse_sp(sql)
+    cols = cols_of(physical, "DBO.PARTY")
+    # The display form (with space) or normalized form must be present; never a split token
+    assert "Party ID" in cols or "PARTY_ID" in cols, f"got: {cols}"
+    assert "PARTY" not in cols, f"split token leaked: {cols}"
+
+
+# ── Bug fix: CTE output-alias translation (formerly KL-1) ─────────────────────
+
+def test_cte_output_alias_resolves_to_source_column():
+    """
+    `SELECT Id as 'Party ID' FROM dbo.Party` means dbo.Party has a column
+    `Id`. It does NOT have a column called `Party ID` -- that is an output
+    alias of the CTE, not a physical column. Reporting the alias sent a BSA
+    looking for a column that does not exist in the source schema.
+
+    Was tests/test_known_limitations.py::test_KL1 (xfail). Promoted here now
+    that extract_cte_output_map (main.py) translates output aliases back to
+    their real source column at attribution time. If this regresses, KL-1 is
+    back and belongs in test_known_limitations.py again, not here.
+    """
     sql = """
-    ;WITH PartyDetails AS (
-        SELECT Id as 'Party ID' FROM dbo.Party
-    )
+    ;WITH PartyDetails AS (SELECT Id as 'Party ID' FROM dbo.Party)
     SELECT LE.[Party ID] FROM PartyDetails LE
     """
     physical, _ = parse_sp(sql)
     cols = cols_of(physical, "DBO.PARTY")
-    joined = " ".join(cols)
-    # The display form (with space) or normalized form must be present; never a split token
-    assert "Party ID" in cols or "PARTY_ID" in cols, f"got: {cols}"
-    assert "PARTY" not in cols, f"split token leaked: {cols}"
+    assert "ID" in cols, "the real source column must be reported"
+    assert "Party ID" not in cols, "the output alias must NOT be reported as a physical column"
+
+
+def test_cte_output_alias_via_join_qualifier_resolves_to_correct_table():
+    """
+    The source column behind an output alias can come from a JOINed table,
+    not just the CTE's own primary FROM table -- `rcs1.RiskCategoryIdentifier
+    AS 'Regional Risk Rating'` where rcs1 is risk.RiskCategory, inside a CTE
+    whose primary FROM is risk.RatingDetails. The alias must resolve to
+    risk.RiskCategory, not be misattributed to risk.RatingDetails.
+    """
+    sql = """
+    ;WITH RegionRiskDetails AS (
+        SELECT PartyId as 'PID', rcs1.RiskCategoryIdentifier AS 'Regional Risk Rating'
+        FROM risk.RatingDetails rrd
+        LEFT JOIN risk.RiskCategory rcs1 ON rrd.RegionRiskRating = rcs1.Id
+    )
+    SELECT RRD.[Regional Risk Rating] FROM RegionRiskDetails RRD
+    """
+    physical, _ = parse_sp(sql)
+    assert "RISKCATEGORYIDENTIFIER" in cols_of(physical, "RISK.RISKCATEGORY")
+    assert "Regional Risk Rating" not in cols_of(physical, "RISK.RATINGDETAILS")
+    assert "Regional Risk Rating" not in cols_of(physical, "RISK.RISKCATEGORY")
 
 
 # ── Bug fix: CTE alias chain resolution ──────────────────────────────────────

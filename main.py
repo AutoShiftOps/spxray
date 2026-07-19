@@ -141,6 +141,24 @@ def clean_sql(sql: str) -> str:
     return sql.strip()
 
 
+def clean_sql_preserve_aliases(sql: str) -> str:
+    """
+    Like clean_sql, but does NOT mask string-literal contents.
+
+    CTE output aliases are commonly written as quoted identifiers
+    (`Id AS 'Party ID'`), and mask_string_literals nulls out everything between
+    quotes by design -- that would destroy the alias text before
+    extract_cte_output_map ever sees it. This is used ONLY for that one
+    read-only extraction; table/column extraction stays on clean_sql's masked
+    output, so the "never invent a table from a data literal" protection
+    (see mask_string_literals) is completely untouched.
+    """
+    sql = re.sub(r'/\*.*?\*/', ' ', sql, flags=re.DOTALL)
+    sql = re.sub(r'--[^\n]*', ' ', sql)
+    sql = re.sub(r'\s+', ' ', sql)
+    return sql.strip()
+
+
 def normalize_bracketed(sql: str):
     """Replace [Multi Word] → MULTI_WORD and return mapping."""
     mapping = {}
@@ -251,11 +269,124 @@ def build_alias_map(stmt, cte_names):
     return alias_map
 
 
+def _split_top_level_commas(text: str) -> list:
+    """Split a SELECT list on commas that are not inside parentheses."""
+    parts, depth, start = [], 0, 0
+    for i, ch in enumerate(text):
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+        elif ch == ',' and depth == 0:
+            parts.append(text[start:i])
+            start = i + 1
+    parts.append(text[start:])
+    return parts
+
+
+def _norm_alias_text(text: str) -> str:
+    return re.sub(r'\s+', '_', text.strip()).upper()
+
+
+_CTE_OUTPUT_ALIAS_RX  = re.compile(r'^(.*)\bAS\b\s*(.+)$', re.IGNORECASE | re.DOTALL)
+_SIMPLE_SOURCE_COL_RX = re.compile(r'^(?:([A-Za-z_]\w*)\.)?(\[[^\]]+\]|[A-Za-z_]\w*)$')
+
+
+def extract_cte_output_map(norm_alias: str, cte_names: set):
+    """
+    Map each CTE's OUTPUT column aliases back to their real source (KL-1 fix).
+
+    `SELECT Id AS 'Party ID' FROM dbo.Party` means the CTE's output column
+    'Party ID' is an ALIAS -- dbo.Party has no such column, it has 'Id'. This
+    builds, per CTE, {ALIAS_NORM: (table_or_None, source_col_or_None)}:
+      - source_col is None            -> expression-derived (CASE/COUNT(*)/etc,
+                                          no single source column) -- the caller
+                                          must drop it, never invent one.
+      - table is None, source_col set -> plain passthrough of one of the CTE's
+                                          own columns; belongs to the CTE's
+                                          primary FROM table (cte_src[CTE]).
+      - table is set,  source_col set -> sourced via a JOIN alias local to this
+                                          CTE's own body (e.g. `rcs1.Foo`);
+                                          belongs to that specific table.
+
+    Must be called with `norm_alias`, the bracket-normalized output of
+    clean_sql_preserve_aliases -- NOT `norm` -- so that quoted alias text
+    (`AS 'Party ID'`) survived clean_sql's literal-masking. See
+    clean_sql_preserve_aliases for why the two must stay separate.
+    """
+    cte_rx = re.compile(
+        r'(?:,|\bWITH\b)\s*([\w]+)\s+AS\s*\((.*?)(?=\)\s*(?:,|\bSELECT\b|\bINSERT\b|\bUPDATE\b|\bDELETE\b|\bMERGE\b))',
+        re.IGNORECASE | re.DOTALL
+    )
+    output_map = {}
+    for m in cte_rx.finditer(norm_alias):
+        cname = m.group(1).upper()
+        if cname not in cte_names:
+            continue
+        body = m.group(2)
+
+        sel_m = re.search(r'\bSELECT\b(.*?)\bFROM\b', body, re.IGNORECASE | re.DOTALL)
+        if not sel_m:
+            continue
+        select_list = re.sub(r'^\s*DISTINCT\b', '', sel_m.group(1).strip(), flags=re.IGNORECASE)
+        local_aliases = build_alias_map(body, cte_names)
+
+        alias_map_for_cte = {}
+        for item in _split_top_level_commas(select_list):
+            item = item.strip()
+            if not item:
+                continue
+            am = _CTE_OUTPUT_ALIAS_RX.match(item)
+            if not am:
+                continue  # no AS -> plain passthrough column, nothing to translate
+
+            lhs, alias_part = am.group(1).strip(), am.group(2).strip()
+
+            alias_text = None
+            if len(alias_part) >= 2 and alias_part[0] == "'" and alias_part[-1] == "'":
+                alias_text = alias_part[1:-1]
+            elif len(alias_part) >= 2 and alias_part[0] == '[' and alias_part[-1] == ']':
+                alias_text = alias_part[1:-1]
+            elif re.match(r'^[A-Za-z_]\w*$', alias_part):
+                alias_text = alias_part
+            if alias_text is None:
+                continue  # malformed/unsupported alias syntax -- skip defensively
+            alias_norm = _norm_alias_text(alias_text)
+
+            sm = _SIMPLE_SOURCE_COL_RX.match(lhs)
+            if not sm:
+                alias_map_for_cte[alias_norm] = (None, None)  # expression -- drop
+                continue
+
+            qualifier, col_raw = sm.group(1), sm.group(2)
+            col_text   = col_raw[1:-1].strip() if col_raw.startswith('[') else col_raw
+            source_col = _norm_alias_text(col_text)
+
+            if qualifier:
+                target_table = local_aliases.get(qualifier.upper())
+                if not target_table or target_table.upper() in cte_names:
+                    # Points at another CTE, or unresolvable within this CTE's
+                    # own body -- don't guess a physical table, drop instead.
+                    alias_map_for_cte[alias_norm] = (None, None)
+                else:
+                    alias_map_for_cte[alias_norm] = (target_table, source_col)
+            else:
+                alias_map_for_cte[alias_norm] = (None, source_col)
+
+        output_map[cname] = alias_map_for_cte
+
+    return output_map
+
+
 def parse_sp(sql: str):
     """Main extraction function. Returns dict with tables, columns, schemas."""
     clean      = clean_sql(sql)
     norm, bmap = normalize_bracketed(clean)
     cte_names, cte_src = extract_cte_info(norm)
+
+    clean_alias    = clean_sql_preserve_aliases(sql)
+    norm_alias, _  = normalize_bracketed(clean_alias)
+    cte_output_map = extract_cte_output_map(norm_alias, cte_names)
 
     physical  = {}
     is_dynamic = bool(re.search(r'EXEC\s*\(|EXECUTE\s*\(|sp_executesql', clean, re.IGNORECASE))
@@ -314,6 +445,28 @@ def parse_sp(sql: str):
                         target = k; break
             if not target and prefix in cte_names:
                 target = resolve_cte(prefix, cte_src, cte_names)
+
+            # Translate a CTE OUTPUT ALIAS back to its real source column
+            # instead of reporting the alias itself as a physical column
+            # (KL-1). `prefix` may be the CTE name directly, or a table-alias
+            # that this statement's own alias_map points at a CTE.
+            source_cte = prefix if prefix in cte_names else None
+            if source_cte is None:
+                aliased = alias_map.get(prefix)
+                if aliased and aliased.upper() in cte_names:
+                    source_cte = aliased.upper()
+            if source_cte and col in cte_output_map.get(source_cte, {}):
+                mapped_table, mapped_col = cte_output_map[source_cte][col]
+                if mapped_col is None:
+                    continue  # expression-derived output column -- never invent
+                if mapped_col in SKIP_WORDS:
+                    continue  # defensive: translated name must not be a keyword
+                col = mapped_col
+                if mapped_table:
+                    target = mapped_table
+                elif source_cte in cte_src:
+                    target = cte_src[source_cte]
+
             if target and target in physical:
                 physical[target]['columns'].add(col)
 
@@ -334,8 +487,13 @@ def parse_sp(sql: str):
     for key in list(physical.keys()):
         info = physical[key]
         restored = {bmap.get(c, c) for c in info['columns']}
-        display_normed = {re.sub(r'\s+','',c).upper() for c in restored
-                          if c in bmap.values() or ' ' in c}
+        # Only a genuine WITH-SPACES display form (e.g. "Group Risk Rating")
+        # can be the "nicer" duplicate of some OTHER bare/no-space entry in this
+        # same set. A single-word bracketed value (e.g. "DerivedRiskOutcome",
+        # from `[DerivedRiskOutcome]`) has no space, so it was previously
+        # matching itself here and getting silently dropped below even when
+        # nothing else in the set actually duplicated it.
+        display_normed = {re.sub(r'\s+','',c).upper() for c in restored if ' ' in c}
         final = set()
         for col in restored:
             cn = re.sub(r'\s+', '', col).upper()

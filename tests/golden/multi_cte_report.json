@@ -11,8 +11,6 @@
       "columns": [
         "ID",
         "NAME",
-        "Party ID",
-        "Party Name",
         "SCHEDULEDREVIEWDATE"
       ]
     },
@@ -37,6 +35,7 @@
       ],
       "aliases": [],
       "columns": [
+        "CountryOfIncorporationId",
         "ID",
         "PARTYID",
         "REFCODE"
@@ -64,9 +63,8 @@
       ],
       "aliases": [],
       "columns": [
-        "ENTITYID",
-        "Group Risk Rating",
-        "PID"
+        "DerivedRiskOutcome",
+        "ENTITYID"
       ]
     },
     "RISK.RATINGDETAILS": {
@@ -79,9 +77,8 @@
         "RRD"
       ],
       "columns": [
-        "PID",
-        "REGIONRISKRATING",
-        "Regional Risk Rating"
+        "PARTYID",
+        "REGIONRISKRATING"
       ]
     },
     "RISK.RISKCATEGORY": {
@@ -110,8 +107,8 @@
       "columns": [
         "CASEID",
         "ID",
-        "PID",
-        "Product Type"
+        "LookupProductTypeId",
+        "PID"
       ]
     }
   }
