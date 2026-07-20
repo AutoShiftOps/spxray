@@ -36,7 +36,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://sql-sp-companion.vercel.app",
+        "https://sqlxray.vercel.app",
         "http://localhost:8000",
         "null",  # file:// origin, for people who just open index.html
     ],
