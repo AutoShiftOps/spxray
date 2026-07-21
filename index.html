@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>sql-sp-companion — Every migration tool needs a DB connection. This one needs a folder of .sql files.</title>
+<link rel="icon" type="image/png" sizes="32x32" href="assets/logo/spxray-mark-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/logo/spxray-mark-180.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -36,7 +38,8 @@ body{background:var(--navy);color:var(--text-primary);font-family:var(--font-bod
 /* Header */
 .header{background:var(--navy-mid);border-bottom:1px solid var(--border);padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
 .header-brand{display:flex;align-items:center;gap:12px}
-.brand-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--steel));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px}
+.brand-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.brand-icon img{width:100%;height:100%;display:block}
 .brand-name{font-size:15px;font-weight:700;letter-spacing:-.3px}
 .brand-sub{font-size:11px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase}
 .header-actions{display:flex;align-items:center;gap:10px}
@@ -203,7 +206,7 @@ tr:hover td{background:rgba(0,194,168,.04)}
 <!-- Header -->
 <header class="header">
   <div class="header-brand">
-    <div class="brand-icon">🔍</div>
+    <div class="brand-icon"><img src="assets/logo/spxray-mark-32.png" alt="SPXray logo"></div>
     <div>
       <div class="brand-name">sql-sp-companion</div>
       <div class="brand-sub">Stored Procedure Analyzer — No DB Connection Required</div>

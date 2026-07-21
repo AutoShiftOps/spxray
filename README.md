@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🔍 SPXray
+<img src="assets/logo/spxray-mark-180.png" alt="SPXray logo" width="96" height="96">
+
+# SPXray
 
 **Every other database migration tool needs a database connection or a credit card.**
 **This one needs a folder of `.sql` files.**
