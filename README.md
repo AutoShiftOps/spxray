@@ -9,13 +9,13 @@ Drop your stored procedures in a browser. Get every physical table, schema,
 column and CRUD operation in 30 seconds — plus an optional AI migration risk
 report. No install. No agent. No IAM role. No database credentials.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/AutoShiftOps/sql-sp-companion/ci.yml?style=flat-square&label=tests)](.github/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/AutoShiftOps/spxray/ci.yml?style=flat-square&label=tests)](.github/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](LICENSE)
 [![Code of Conduct](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa?style=flat-square)](CODE_OF_CONDUCT.md)
 
-[**Live demo**](https://sql-sp-companion.vercel.app) · [Why this exists](#why) · [What's in / what's out](#whats-in--whats-out)
+[**Live demo**](https://spxray.vercel.app) · [Why this exists](#why) · [What's in / what's out](#whats-in--whats-out)
 
 *A [QueryTuner](https://querytuner.com) project*
 
@@ -39,7 +39,7 @@ The tools that automate this all assume something you may not have:
 | AWS DMS Fleet Advisor | A collector, S3 bucket, IAM roles, DB creds | *What's in my fleet?* — **retired May 2026** |
 | SQLFlow / GSP | A commercial licence | *Where does this data flow?* |
 | sqlglot | Nothing — but [falls back to `Command` mode on T-SQL procedure bodies](https://www.dpriver.com/blog/gsp-vs-jsqlparser-vs-sqlglot-sql-parser-comparison-2026/), losing all structure inside them | *Parse this query* |
-| **sql-sp-companion** | **A folder of `.sql` files** | ***What does my migration wave touch?*** |
+| **spxray** | **A folder of `.sql` files** | ***What does my migration wave touch?*** |
 
 AWS retired Fleet Advisor — a **free** tool, from AWS — in May 2026. Look at
 what it asked for before it would tell you anything: install a data collector,
@@ -57,7 +57,7 @@ plan and defend it in a review.
 
 ## Try it
 
-**Hosted:** [sql-sp-companion.vercel.app](https://sql-sp-companion.vercel.app) — the
+**Hosted:** [spxray.vercel.app](https://spxray.vercel.app) — the
 backend is on a free tier, so the first request after an idle period takes
 ~30–60s to wake. Subsequent requests are instant.
 
@@ -66,8 +66,8 @@ backend is on a free tier, so the first request after an idle period takes
 ## Quickstart (60 seconds, local)
 
 ```bash
-git clone https://github.com/AutoShiftOps/sql-sp-companion
-cd sql-sp-companion
+git clone https://github.com/AutoShiftOps/spxray
+cd spxray
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 uvicorn main:app --reload
