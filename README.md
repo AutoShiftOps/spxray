@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🔍 sql-sp-companion
+# 🔍 SPXray
 
 **Every other database migration tool needs a database connection or a credit card.**
 **This one needs a folder of `.sql` files.**
