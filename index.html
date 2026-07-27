@@ -451,6 +451,21 @@ function apiBase() {
   return (document.getElementById('apiUrl').value || 'https://sql-sp-companion.onrender.com').replace(/\/$/, '');
 }
 
+// FastAPI's HTTPException detail comes in three shapes: a plain string, a
+// structured object like {error, message, limit, ...} (tier-limit / no_input
+// errors in main.py), or -- on a 422 -- an array of Pydantic validation errors
+// like [{type, loc, msg, input}]. Stringifying any non-string shape directly
+// gives "[object Object]"; this picks out the human-readable message from each.
+function apiErrorMessage(err, fallback) {
+  const d = err && err.detail;
+  if (typeof d === 'string' && d) return d;
+  if (Array.isArray(d) && d.length) {
+    return d.map(e => e && e.msg ? `${(e.loc || []).join('.')}: ${e.msg}` : JSON.stringify(e)).join('; ');
+  }
+  if (d && typeof d === 'object' && d.message) return d.message;
+  return fallback;
+}
+
 // ── Health check ───────────────────────────────────────────────
 async function checkApiHealth() {
   const dot  = document.getElementById('apiDot');
@@ -532,7 +547,7 @@ async function analyze() {
 
     if (!r.ok) {
       const err = await r.json().catch(()=>({detail: r.statusText}));
-      throw new Error(err.detail || r.statusText);
+      throw new Error(apiErrorMessage(err, r.statusText));
     }
 
     pf.style.width = '100%';
@@ -733,7 +748,7 @@ async function getAiInsights() {
 
     if (!r.ok) {
       const err = await r.json().catch(()=>({detail: r.statusText}));
-      throw new Error(err.detail || r.statusText);
+      throw new Error(apiErrorMessage(err, r.statusText));
     }
 
     const d = await r.json();
