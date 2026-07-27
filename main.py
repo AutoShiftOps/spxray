@@ -576,9 +576,12 @@ def health():
 
 
 @app.post("/analyze")
-async def analyze(files: list[UploadFile] = File(...)):
+async def analyze(
+    files: list[UploadFile] = File(default=[]),
+    sql_text: Optional[str] = Form(default=None),
+):
     """
-    Analyze one or more SQL files.
+    Analyze one or more SQL files, and/or pasted SQL text.
     Returns structured extraction: procedures, tables, columns, schema_map.
     Subject to the active tier's limits (see /health for current limits).
     """
@@ -588,6 +591,17 @@ async def analyze(files: list[UploadFile] = File(...)):
     payloads = []
     for upload in files:
         payloads.append((upload.filename, await upload.read()))
+
+    if sql_text and sql_text.strip():
+        # Pasted text flows through the identical in-memory "file" path below —
+        # same parsing, same limit checks, no forked logic.
+        payloads.append(("pasted.sql", sql_text.encode("utf-8")))
+
+    if not payloads:
+        raise HTTPException(status_code=400, detail={
+            "error": "no_input",
+            "message": "Provide at least one file or non-empty sql_text.",
+        })
 
     try:
         check_upload_limits(tier, [len(raw) for _, raw in payloads])

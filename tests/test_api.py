@@ -63,6 +63,31 @@ def test_analyze_meta_is_auditable(client):
     assert "crud_and_dynamic.sql" in meta["files"]
 
 
+def test_pasted_sql_matches_equivalent_file_upload(client):
+    """Paste-SQL must flow through the identical parsing path as file upload."""
+    sql_text = (FIXTURES / "crud_and_dynamic.sql").read_text(encoding="utf-8")
+
+    file_resp  = client.post("/analyze", files=[upload("crud_and_dynamic.sql")]).json()
+    paste_resp = client.post("/analyze", data={"sql_text": sql_text}).json()
+
+    assert file_resp["status"] == "success"
+    assert paste_resp["status"] == "success"
+
+    # Same parse results -- only the synthetic filename differs.
+    assert paste_resp["stats"] == file_resp["stats"]
+    assert paste_resp["schema_map"] == file_resp["schema_map"]
+
+    def without_file(rows):
+        return [{k: v for k, v in row.items() if k != "file"} for row in rows]
+
+    assert without_file(paste_resp["procedures"]) == without_file(file_resp["procedures"])
+    assert without_file(paste_resp["tables"])     == without_file(file_resp["tables"])
+    assert without_file(paste_resp["columns"])    == without_file(file_resp["columns"])
+
+    assert paste_resp["meta"]["tool"] == file_resp["meta"]["tool"]
+    assert paste_resp["meta"]["files"] == ["pasted.sql"]
+
+
 def test_analyze_stats_are_internally_consistent(client):
     d = client.post("/analyze", files=[upload("crud_and_dynamic.sql")]).json()
     stats = d["stats"]

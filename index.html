@@ -73,6 +73,11 @@ body{background:var(--navy);color:var(--text-primary);font-family:var(--font-bod
 .upload-hero{font-size:28px;font-weight:700;letter-spacing:-.5px;line-height:1.2;margin-bottom:10px}
 .upload-hero span{color:var(--accent)}
 .upload-sub{color:var(--text-secondary);font-size:14px;margin-bottom:36px}
+.input-mode-toggle{display:flex;justify-content:center;gap:2px;margin-bottom:16px}
+.input-mode-toggle button{padding:8px 18px;font-size:13px;font-weight:600;color:var(--text-dim);cursor:pointer;border:1px solid var(--border);background:var(--surface);border-radius:8px}
+.input-mode-toggle button.active{color:var(--accent);border-color:var(--accent);background:rgba(0,194,168,.08)}
+.paste-textarea{width:100%;min-height:280px;resize:vertical;background:var(--surface);color:var(--text-primary);border:2px dashed var(--border);border-radius:var(--radius-lg);padding:16px;font-family:var(--font-mono);font-size:13px;line-height:1.5}
+.paste-textarea:focus{outline:none;border-color:var(--accent)}
 .dropzone{border:2px dashed var(--border);border-radius:var(--radius-lg);padding:48px 24px;cursor:pointer;transition:all .2s;background:var(--surface);position:relative}
 .dropzone:hover,.dropzone.drag-over{border-color:var(--accent);background:rgba(0,194,168,.05)}
 .dropzone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
@@ -84,6 +89,8 @@ body{background:var(--navy);color:var(--text-primary);font-family:var(--font-bod
 .file-chip .rm{cursor:pointer;color:var(--text-dim);font-size:14px}
 .file-chip .rm:hover{color:var(--danger)}
 .analyze-row{margin-top:24px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
+.example-row{margin-top:14px;display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:wrap}
+.example-label{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px}
 .progress-bar{height:3px;background:var(--border);border-radius:2px;margin-top:20px;overflow:hidden;display:none}
 .progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--steel-bright));width:0%;transition:width .3s;border-radius:2px}
 
@@ -237,16 +244,37 @@ tr:hover td{background:rgba(0,194,168,.04)}
 <div class="upload-zone" id="uploadZone">
   <div class="upload-hero">Every other database migration tool needs a database connection or a credit card.<br><span>This one needs a folder of .sql files.</span></div>
   <p class="upload-sub">Upload .sql files — the Python backend extracts every physical table, schema, column and CRUD operation. Optional AI insights powered by HuggingFace (Qwen2.5-Coder).</p>
-  <div class="dropzone" id="dropzone">
-    <input type="file" id="fileInput" multiple accept=".sql,.txt" onchange="handleFiles(this.files)">
-    <span class="dropzone-icon">📂</span>
-    <div class="dropzone-label">Drop .sql files here or click to browse</div>
-    <div class="dropzone-hint">Multi-file · T-SQL · PostgreSQL · MySQL · Oracle · Any encoding</div>
+
+  <div class="input-mode-toggle">
+    <button id="modeUploadBtn" class="active" onclick="setInputMode('upload')">📂 Upload files</button>
+    <button id="modePasteBtn" onclick="setInputMode('paste')">📝 Paste SQL</button>
   </div>
-  <div class="file-list" id="fileList"></div>
+
+  <div id="uploadMode">
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" multiple accept=".sql,.txt" onchange="handleFiles(this.files)">
+      <span class="dropzone-icon">📂</span>
+      <div class="dropzone-label">Drop .sql files here or click to browse</div>
+      <div class="dropzone-hint">Multi-file · T-SQL · PostgreSQL · MySQL · Oracle · Any encoding</div>
+    </div>
+    <div class="file-list" id="fileList"></div>
+  </div>
+
+  <div id="pasteMode" style="display:none">
+    <textarea class="paste-textarea" id="pasteTextarea" rows="15"
+      placeholder="Paste your stored procedure SQL here…"
+      oninput="document.getElementById('analyzeBtn').disabled = !document.getElementById('pasteTextarea').value.trim()"></textarea>
+  </div>
+
   <div class="analyze-row">
     <button class="btn btn-primary" id="analyzeBtn" onclick="analyze()" disabled>▶ Analyze via API</button>
-    <button class="btn btn-ghost" onclick="loadDemo()">Try demo SQL</button>
+  </div>
+  <div class="example-row">
+    <span class="example-label">Try an example:</span>
+    <button class="btn btn-ghost btn-sm" onclick="loadExample('simple')" title="A few plain single-table SELECTs across schemas">Simple proc</button>
+    <button class="btn btn-ghost btn-sm" onclick="loadExample('cte')" title="Multi-hop CTE chain resolving back to physical tables">Multi-CTE report</button>
+    <button class="btn btn-ghost btn-sm" onclick="loadExample('merge')" title="MERGE with an OUTPUT...INTO clause writing to a third audit table">MERGE + audit</button>
+    <button class="btn btn-ghost btn-sm" onclick="loadExample('crud')" title="INSERT/UPDATE/DELETE/MERGE across schemas plus a flagged dynamic-SQL call">Cross-schema CRUD</button>
   </div>
   <div class="progress-bar" id="progressBar">
     <div class="progress-fill" id="progressFill"></div>
@@ -404,6 +432,20 @@ tr:hover td{background:rgba(0,194,168,.04)}
 // ── State ──────────────────────────────────────────────────────
 let uploadedFiles  = [];
 let analysisResult = null;
+let inputMode      = 'upload';   // 'upload' | 'paste'
+
+function setInputMode(mode) {
+  inputMode = mode;
+  document.getElementById('modeUploadBtn').classList.toggle('active', mode === 'upload');
+  document.getElementById('modePasteBtn').classList.toggle('active', mode === 'paste');
+  document.getElementById('uploadMode').style.display = mode === 'upload' ? 'block' : 'none';
+  document.getElementById('pasteMode').style.display  = mode === 'paste'  ? 'block' : 'none';
+
+  const analyzeBtn = document.getElementById('analyzeBtn');
+  analyzeBtn.disabled = mode === 'upload'
+    ? uploadedFiles.length === 0
+    : !document.getElementById('pasteTextarea').value.trim();
+}
 
 function apiBase() {
   return (document.getElementById('apiUrl').value || 'https://sql-sp-companion.onrender.com').replace(/\/$/, '');
@@ -467,7 +509,9 @@ dz.addEventListener('drop', e=>{ e.preventDefault(); dz.classList.remove('drag-o
 
 // ── Analyze — calls FastAPI /analyze ──────────────────────────
 async function analyze() {
-  if (!uploadedFiles.length) return;
+  const pastedSql = inputMode === 'paste' ? document.getElementById('pasteTextarea').value.trim() : '';
+  if (inputMode === 'upload' && !uploadedFiles.length) return;
+  if (inputMode === 'paste' && !pastedSql) return;
   hideError();
 
   const pb = document.getElementById('progressBar');
@@ -476,7 +520,11 @@ async function analyze() {
   pf.style.width   = '30%';
 
   const fd = new FormData();
-  for (const f of uploadedFiles) fd.append('files', f);
+  if (inputMode === 'paste') {
+    fd.append('sql_text', pastedSql);
+  } else {
+    for (const f of uploadedFiles) fd.append('files', f);
+  }
 
   try {
     pf.style.width = '60%';
@@ -811,34 +859,107 @@ function downloadExcel() {
   showToast('⬇','Excel downloaded');
 }
 
-// ── Demo ───────────────────────────────────────────────────────
-function loadDemo() {
-  const sql = `CREATE PROCEDURE sales.usp_ProcessOrders @CustomerID INT, @StartDate DATE AS BEGIN
-WITH RecentOrders AS (SELECT o.OrderID,o.OrderDate,o.CustomerID FROM dbo.Orders o WHERE o.OrderDate>=@StartDate)
-INSERT INTO #Staged (OrderID,ProductID,Qty,Price) SELECT od.OrderID,od.ProductID,od.Quantity,od.UnitPrice
-FROM RecentOrders ro INNER JOIN sales.OrderDetails od ON od.OrderID=ro.OrderID
-INNER JOIN catalog.Products p ON p.ProductID=od.ProductID WHERE p.IsActive=1;
-SELECT s.OrderID,c.CustomerName,c.Email,p.ProductName FROM #Staged s
-INNER JOIN dbo.Customers c ON c.CustomerID=@CustomerID INNER JOIN catalog.Products p ON p.ProductID=s.ProductID;
-UPDATE dbo.Orders SET LastAccessedDate=GETDATE() WHERE CustomerID=@CustomerID;
-INSERT INTO audit.ActivityLog (EntityType,EntityID,Action,ActionDate) VALUES ('ORDER',@CustomerID,'PROCESS',GETDATE());
+// ── Examples (sourced verbatim from tests/fixtures/*.sql) ──────
+// Kept in sync manually with the backend test fixtures; not fetched at
+// runtime so the frontend stays a single self-contained file.
+const EXAMPLES = {
+  simple: `SELECT o.OrderID, o.TotalAmount FROM sales.Orders o WHERE o.IsActive = 1;
+SELECT o.OfficeName, o.OfficeCode FROM hr.Offices o WHERE o.Region = 'CA';
+SELECT p.ProductName FROM catalog.Products p;
+SELECT p.PersonName FROM hr.People p;`,
+
+  cte: `;WITH PartyDetails AS
+(
+    SELECT Id as 'Party ID', Name as 'Party Name',
+    ScheduledReviewDate as 'Scheduled Review Date'
+    FROM dbo.Party
+    WHERE Active=0  -- only fetch active ids
+),
+PartyRef AS
+(
+    SELECT PartyId, RefCode, CountryOfIncorporationId
+    FROM dbo.PartyCompany WITH (NOLOCK)
+),
+Country AS
+(SELECT Id, ShortName, Name as 'CountryName'
+    FROM PartyRef
+INNER JOIN dbo.Country country ON country.id = PartyRef.[CountryOfIncorporationId] ),
+RegionRiskDetails AS
+(
+    SELECT PartyId as 'PID',
+    rcs1.RiskCategoryIdentifier AS 'Regional Risk Rating',
+    RegionComments AS [Region Comments]
+    FROM risk.RatingDetails rrd
+    LEFT JOIN risk.RiskCategory rcs1 ON rrd.RegionRiskRating = rcs1.Id
+),
+GroupRiskRating AS
+(
+    SELECT EntityId AS 'PID', [DerivedRiskOutcome] AS 'Group Risk Rating'
+    from [PartyWarehouse].[risk].[CaseDerivedRisk]
+    WHERE BusinessEntityTypeId=30
+),
+Products AS
+(
+    SELECT DISTINCT p.id, caseid, lpt.Name AS 'Product Type'
+    FROM sales.Product p
+    LEFT JOIN [refdata].[LookupProductType] lpt ON lpt.Id = p.[LookupProductTypeId]
+    LEFT JOIN [dbo].[PartyAssociation] [pa] ON pa.EntityId = p.CaseId
+)
+SELECT DISTINCT
+PD.[Party ID] AS 'Party ID',
+PD.[Party Name] AS 'Party Name',
+GRR.[Group Risk Rating] AS 'Group Risk Rating',
+RRD.[Regional Risk Rating] AS 'Regional Risk Rating',
+P.[Product Type] AS 'Product Type'
+FROM Products P
+INNER JOIN PartyDetails PD ON PD.[Party ID]=P.PID
+LEFT JOIN RegionRiskDetails RRD ON PD.[Party ID] = RRD.PID
+LEFT JOIN GroupRiskRating GRR ON PD.[Party ID] = GRR.PID
+ORDER BY [Party ID]`,
+
+  merge: `CREATE PROCEDURE risk.usp_SyncRatingDetails AS
+BEGIN
+    MERGE risk.RatingDetails AS tgt
+    USING refdata.RatingFeed AS src
+    ON tgt.PartyId = src.PartyId
+    WHEN MATCHED THEN
+        UPDATE SET tgt.RegionRiskRating = src.NewRating, tgt.LastSyncDate = GETDATE()
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT (PartyId, RegionRiskRating, LastSyncDate)
+        VALUES (src.PartyId, src.NewRating, GETDATE())
+    OUTPUT $action, inserted.PartyId, deleted.RegionRiskRating, inserted.RegionRiskRating
+        INTO audit.RatingSyncLog (Action, PartyId, OldRating, NewRating);
+END`,
+
+  crud: `CREATE PROCEDURE warehouse.usp_ManageInventory @ProductID INT, @Qty INT AS BEGIN
+    SELECT i.ProductID, i.StockLevel INTO #Snapshot FROM warehouse.Inventory i;
+
+    UPDATE warehouse.Inventory
+    SET StockLevel = StockLevel - @Qty, LastUpdated = GETDATE()
+    WHERE ProductID = @ProductID;
+
+    MERGE warehouse.StockTransfers AS target
+    USING (SELECT WarehouseID, ProductID FROM warehouse.Inventory) AS src
+    ON target.ProductID = src.ProductID
+    WHEN MATCHED THEN UPDATE SET target.AvailableQty = 0;
+
+    INSERT INTO audit.LowStockAlerts (ProductID, AlertDate) VALUES (@ProductID, GETDATE());
+    DELETE FROM warehouse.StockTransfers WHERE LastSyncDate < DATEADD(DAY,-90,GETDATE());
+    TRUNCATE TABLE staging.InventoryImport;
 END
 GO
-CREATE PROCEDURE warehouse.usp_ManageInventory @ProductID INT, @Qty INT AS BEGIN
-UPDATE warehouse.Inventory SET StockLevel=StockLevel-@Qty,LastUpdated=GETDATE() WHERE ProductID=@ProductID;
-MERGE warehouse.StockTransfers AS target
-USING (SELECT WarehouseID,ProductID,StockLevel FROM warehouse.Inventory WHERE ProductID=@ProductID) AS src
-ON target.ProductID=src.ProductID AND target.WarehouseID=src.WarehouseID
-WHEN MATCHED THEN UPDATE SET target.AvailableQty=src.StockLevel
-WHEN NOT MATCHED THEN INSERT (ProductID,WarehouseID,AvailableQty) VALUES (src.ProductID,src.WarehouseID,src.StockLevel);
-INSERT INTO audit.LowStockAlerts (ProductID,AlertDate,StockLevel)
-SELECT ProductID,GETDATE(),StockLevel FROM warehouse.Inventory WHERE ProductID=@ProductID AND StockLevel<10;
-DELETE FROM warehouse.StockTransfers WHERE LastSyncDate<DATEADD(DAY,-90,GETDATE());
-END`;
-  const blob = new Blob([sql],{type:'text/plain'});
-  uploadedFiles = [new File([blob],'demo_procedures.sql',{type:'text/plain'})];
-  renderFileList();
-  showToast('📋','Demo SQL loaded — click Analyze via API');
+CREATE PROCEDURE dbo.usp_DynamicSearch @tbl NVARCHAR(128) AS BEGIN
+    SELECT c.CustomerID FROM dbo.Customers c;
+    DECLARE @sql NVARCHAR(MAX) = N'SELECT * FROM ' + QUOTENAME(@tbl);
+    EXEC sp_executesql @sql;
+END`,
+};
+
+function loadExample(key) {
+  setInputMode('paste');
+  document.getElementById('pasteTextarea').value = EXAMPLES[key];
+  document.getElementById('analyzeBtn').disabled = false;
+  showToast('📋', 'Example loaded — click Analyze via API');
 }
 
 // ── Reset ──────────────────────────────────────────────────────
@@ -855,7 +976,9 @@ function resetTool() {
   document.getElementById('aiPanel').style.display   = 'none';
   document.getElementById('aiText').textContent = '';
   document.getElementById('fileInput').value = '';
+  document.getElementById('pasteTextarea').value = '';
   renderFileList();
+  setInputMode('upload');
   hideError();
 }
 
