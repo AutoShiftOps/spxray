@@ -695,7 +695,7 @@ async def analyze(files: list[UploadFile] = File(...)):
     return {
         "status":     "success",
         "meta": {
-            "tool":         "sql-sp-companion",
+            "tool":         "spxray",
             "version":      __version__,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "files":        [fn for fn, _ in payloads],

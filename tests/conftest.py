@@ -1,4 +1,4 @@
-"""Shared fixtures for the sql-sp-companion test suite."""
+"""Shared fixtures for the spxray test suite."""
 import sys
 from pathlib import Path
 

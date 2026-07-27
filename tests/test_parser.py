@@ -1,5 +1,5 @@
 """
-Parser regression tests for sql-sp-companion.
+Parser regression tests for spxray.
 Each test encodes a real-world bug we fixed — do not delete without reading git history.
 """
 import sys

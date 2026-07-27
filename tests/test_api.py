@@ -59,7 +59,7 @@ def test_analyze_meta_is_auditable(client):
     meta = client.post("/analyze", files=[upload("crud_and_dynamic.sql")]).json()["meta"]
     for field in ("tool", "version", "generated_at", "files", "tier"):
         assert field in meta, f"meta missing {field}"
-    assert meta["tool"] == "sql-sp-companion"
+    assert meta["tool"] == "spxray"
     assert "crud_and_dynamic.sql" in meta["files"]
 
 

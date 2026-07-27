@@ -1,5 +1,5 @@
 """
-Tier limits for sql-sp-companion.
+Tier limits for spxray.
 
 Free tier is generous enough to be genuinely useful for evaluation and small
 migrations. Enterprise tier is unlocked by a license key and removes limits.

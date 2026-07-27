@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>sql-sp-companion — Every migration tool needs a DB connection. This one needs a folder of .sql files.</title>
+<title>SPXray — Every migration tool needs a DB connection. This one needs a folder of .sql files.</title>
 <link rel="icon" type="image/png" sizes="32x32" href="assets/logo/spxray-mark-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="assets/logo/spxray-mark-180.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -208,7 +208,7 @@ tr:hover td{background:rgba(0,194,168,.04)}
   <div class="header-brand">
     <div class="brand-icon"><img src="assets/logo/spxray-mark-32.png" alt="SPXray logo"></div>
     <div>
-      <div class="brand-name">sql-sp-companion</div>
+      <div class="brand-name">SPXray</div>
       <div class="brand-sub">Stored Procedure Analyzer — No DB Connection Required</div>
     </div>
   </div>
@@ -765,7 +765,7 @@ function downloadExcel() {
   const wb = XLSX.utils.book_new();
 
   const sumData = [
-    ['sql-sp-companion — Analysis Report'],
+    ['SPXray — Analysis Report'],
     [`Generated: ${new Date().toLocaleString()}`],[],
     ['#','Procedure','File','Dialect','Tables','Columns','Dynamic SQL?'],
     ...d.procedures.map((p,i)=>[i+1,p.name,p.file,p.dialect,p.table_count,p.col_count,p.is_dynamic?'⚠ YES':'No'])
