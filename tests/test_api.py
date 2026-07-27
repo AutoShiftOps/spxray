@@ -5,7 +5,9 @@ The UI and any third-party integration depend on the JSON shape. These tests
 pin the API contract. Breaking one of these is a breaking change requiring a
 major version bump — the UI is decoupled precisely so it can rely on this.
 """
+import base64
 import io
+import json
 import sys
 from pathlib import Path
 
@@ -86,6 +88,34 @@ def test_pasted_sql_matches_equivalent_file_upload(client):
 
     assert paste_resp["meta"]["tool"] == file_resp["meta"]["tool"]
     assert paste_resp["meta"]["files"] == ["pasted.sql"]
+
+
+def test_base64_payload_matches_equivalent_file_upload(client):
+    """
+    payload_b64 exists so the UI can dodge edge WAFs that flag plaintext
+    dynamic-SQL/TRUNCATE/DROP patterns as SQL injection -- it must parse
+    identically to a raw file upload of the same bytes, filename included.
+    """
+    raw = (FIXTURES / "crud_and_dynamic.sql").read_bytes()
+    entries = [{"filename": "crud_and_dynamic.sql", "content_b64": base64.b64encode(raw).decode()}]
+
+    file_resp = client.post("/analyze", files=[upload("crud_and_dynamic.sql")]).json()
+    b64_resp  = client.post("/analyze", data={"payload_b64": json.dumps(entries)}).json()
+
+    assert file_resp["status"] == "success"
+    assert b64_resp["status"] == "success"
+    assert b64_resp["stats"] == file_resp["stats"]
+    assert b64_resp["schema_map"] == file_resp["schema_map"]
+    assert b64_resp["procedures"] == file_resp["procedures"]
+    assert b64_resp["tables"]     == file_resp["tables"]
+    assert b64_resp["columns"]    == file_resp["columns"]
+    assert b64_resp["meta"]["files"] == file_resp["meta"]["files"] == ["crud_and_dynamic.sql"]
+
+
+def test_analyze_rejects_malformed_payload_b64(client):
+    r = client.post("/analyze", data={"payload_b64": "not valid json"})
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"] == "bad_payload_b64"
 
 
 def test_analyze_stats_are_internally_consistent(client):

@@ -9,6 +9,7 @@ Exposes two endpoints:
 import re
 import os
 import json
+import base64
 import requests
 from pathlib import Path
 from collections import defaultdict
@@ -579,11 +580,18 @@ def health():
 async def analyze(
     files: list[UploadFile] = File(default=[]),
     sql_text: Optional[str] = Form(default=None),
+    payload_b64: Optional[str] = Form(default=None),
 ):
     """
     Analyze one or more SQL files, and/or pasted SQL text.
     Returns structured extraction: procedures, tables, columns, schema_map.
     Subject to the active tier's limits (see /health for current limits).
+
+    `payload_b64` is a JSON array of {filename, content_b64}. Real stored
+    procedures routinely contain dynamic-SQL/TRUNCATE/DROP patterns that trip
+    generic edge WAFs (e.g. Render's Cloudflare layer) when sent as plaintext
+    -- the UI base64-encodes both uploaded files and pasted text through this
+    field so the request body never contains literal SQL keywords in transit.
     """
     tier = active_tier()
 
@@ -597,10 +605,29 @@ async def analyze(
         # same parsing, same limit checks, no forked logic.
         payloads.append(("pasted.sql", sql_text.encode("utf-8")))
 
+    if payload_b64:
+        try:
+            entries = json.loads(payload_b64)
+        except (json.JSONDecodeError, TypeError):
+            raise HTTPException(status_code=400, detail={
+                "error": "bad_payload_b64",
+                "message": "payload_b64 must be a JSON array of {filename, content_b64}.",
+            })
+        for entry in entries:
+            filename = (entry.get("filename") or "pasted.sql") if isinstance(entry, dict) else "pasted.sql"
+            try:
+                raw = base64.b64decode(entry["content_b64"])
+            except Exception:
+                raise HTTPException(status_code=400, detail={
+                    "error": "bad_payload_b64",
+                    "message": f"Could not base64-decode entry for {filename}.",
+                })
+            payloads.append((filename, raw))
+
     if not payloads:
         raise HTTPException(status_code=400, detail={
             "error": "no_input",
-            "message": "Provide at least one file or non-empty sql_text.",
+            "message": "Provide at least one file, non-empty sql_text, or payload_b64.",
         })
 
     try:
