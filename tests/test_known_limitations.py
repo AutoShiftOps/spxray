@@ -178,3 +178,38 @@ def test_KL7b_collision_drops_unrelated_same_named_table_anywhere_in_procedure()
         "an unrelated table was dropped just for sharing a name with a CTE"
 
 
+@pytest.mark.xfail(strict=True, reason="KL-15: a MERGE's USING (subquery) clause severs the header's target/src aliases from the ON/UPDATE SET/INSERT clauses that use them")
+def test_KL15_merge_using_subquery_does_not_sever_target_alias():
+    """
+    STMT_SPLIT treats any bare SELECT keyword as a new top-level statement
+    boundary, with one exception carved out for KL-9 (a MERGE's own
+    `WHEN ... THEN` sub-clause). A MERGE's `USING (SELECT ...) AS src`
+    derived table has its OWN SELECT keyword, which is not that exception --
+    it still splits there, severing "MERGE tbl AS target USING (" from
+    "SELECT ... FROM src) AS src ON target.Col = ... WHEN MATCHED THEN
+    UPDATE SET target.Col2 = ...". The second chunk has no idea "target" is
+    an alias for tbl at all, so every target.-qualified column (and the
+    MERGE's own WHEN NOT MATCHED THEN INSERT (...) column list, see the
+    INSERT-target-column-list fix) goes unresolved -- even though KL-12 now
+    makes the alias itself valid.
+
+    Found and reproduced while fixing KL-12/KL-13: suppressing the split
+    (making it symmetric with KL-9's fix) does resolve target./src. columns,
+    but merging the two chunks also merges their table counts for the
+    single-table unqualified-column fallback -- the derived table's own
+    unqualified SELECT-list columns (e.g. a plain `WarehouseID` with no
+    alias) then fail the "exactly one table in this statement" heuristic
+    and stop resolving, trading one resolved column for another rather than
+    a clean win. Pinned rather than forced; see main.py's STMT_SPLIT comment.
+    """
+    sql = """
+    MERGE dbo.Party AS target
+    USING (SELECT Id, Name FROM dbo.PartyStaging) AS src
+    ON target.Id = src.Id
+    WHEN MATCHED THEN UPDATE SET target.Name = src.Name;
+    """
+    physical, _ = parse_sp(sql)
+    assert {"ID", "NAME"} <= cols_of(physical, "DBO.PARTY"), \
+        "target.-qualified columns should resolve now that KL-12 allows the alias"
+
+

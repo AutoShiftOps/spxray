@@ -103,9 +103,10 @@ Nothing rots silently. The README limitations table must stay in sync with this 
 | **KL-5** | Expression-derived CTE output columns don't surface the real operand column | Needs expression parsing |
 | **KL-6** | A column referenced through a CTE alias is attributed even when the CTE never outputs it | Needs a per-CTE output allow-list |
 | **KL-7** / **KL-7b** | A physical table is dropped entirely when its base name collides with a same-named CTE, anywhere in the procedure | **Most severe on this list** — a table silently missing, not a column |
+| **KL-15** | A MERGE's `USING (subquery) AS src` severs the header's `target`/`src` aliases from the `ON`/`UPDATE SET`/`INSERT` clauses that use them | Same symptom as fixed KL-9, different trigger; a fix was tried but traded away a different column, so it's pinned rather than forced |
 
-KL-1, KL-8, KL-9, KL-10, KL-11 were fixed and promoted to `test_parser.py`/
-`test_contracts.py` — see [CHANGELOG](CHANGELOG.md#fixed).
+KL-1, KL-8, KL-9, KL-10, KL-11, KL-12, KL-13, KL-14 were fixed and promoted to
+`test_parser.py`/`test_contracts.py` — see [CHANGELOG](CHANGELOG.md#fixed).
 
 ### Layer 4 — Tier tests (`test_tiers.py`)
 

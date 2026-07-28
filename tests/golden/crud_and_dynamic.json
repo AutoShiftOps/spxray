@@ -8,7 +8,10 @@
         "INSERT"
       ],
       "aliases": [],
-      "columns": []
+      "columns": [
+        "ALERTDATE",
+        "PRODUCTID"
+      ]
     },
     "DBO.CUSTOMERS": {
       "schema": "DBO",
@@ -53,11 +56,14 @@
       "base": "STOCKTRANSFERS",
       "ops": [
         "DELETE",
-        "MERGE",
-        "SELECT"
+        "MERGE"
       ],
-      "aliases": [],
-      "columns": []
+      "aliases": [
+        "TARGET"
+      ],
+      "columns": [
+        "LASTSYNCDATE"
+      ]
     }
   }
 }

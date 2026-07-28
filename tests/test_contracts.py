@@ -25,6 +25,10 @@ from main import parse_sp, read_bytes_safe
 from conftest import sql_fixture, tables_of, cols_of
 
 
+def ops_of(physical, key) -> set:
+    return physical.get(key, {}).get("ops", set())
+
+
 # ── C1: Determinism ───────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("fixture", [
@@ -182,6 +186,32 @@ def test_C4_cte_output_alias_translation_does_not_reopen_the_literal_hole():
         "the real source column must still be reported"
     assert "FOO" not in cols_of(physical, "DBO.REAL") and "Foo" not in cols_of(physical, "DBO.REAL"), \
         "the output alias must not be reported as a physical column"
+
+
+def test_C4_delete_does_not_invent_a_select_op():
+    """
+    A generic `\\bFROM\\s+table` pattern in TABLE_OP_PATTERNS exists to catch
+    plain SELECT...FROM, but it also matched a DELETE statement's own
+    "FROM table" text -- phantom-tagging a SELECT op that never happened
+    anywhere in the SQL. Ops are just as much a "never invent" surface as
+    columns: a migration plan reading "SELECT, DELETE" on a table that is
+    only ever deleted from is a wrong answer, not a missing one.
+    """
+    sql = "DELETE FROM warehouse.StockTransfers WHERE ProductID = 1;"
+    physical, _ = parse_sp(sql)
+    assert ops_of(physical, "WAREHOUSE.STOCKTRANSFERS") == {"DELETE"}, \
+        "DELETE's own FROM clause must not also register a phantom SELECT op"
+
+
+def test_C4_delete_inside_larger_procedure_still_gets_only_delete():
+    """Same contract, but confirming a real SELECT elsewhere isn't suppressed."""
+    sql = """
+    SELECT o.Id FROM dbo.Orders o;
+    DELETE FROM dbo.Orders WHERE Id = 1;
+    """
+    physical, _ = parse_sp(sql)
+    assert ops_of(physical, "DBO.ORDERS") == {"SELECT", "DELETE"}, \
+        "a genuine SELECT elsewhere in the procedure must still be recorded"
 
 
 # ── C5: Dynamic SQL honesty ───────────────────────────────────────────────────

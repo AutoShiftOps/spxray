@@ -80,8 +80,22 @@ SKIP_WORDS = {
     'OFFSET','FETCH','NEXT','ROWS','ONLY',
 }
 
+# TARGET/SOURCE are real MERGE keywords (WHEN MATCHED BY TARGET / BY SOURCE) so
+# SKIP_WORDS correctly denylists them as bare table/column names elsewhere --
+# but that same denylist was also blocking them as ALIAS names, and `AS target`
+# / `AS source` is one of the most common MERGE-aliasing conventions (it's what
+# Microsoft's own MERGE docs use). This is a narrower list, used only at the
+# alias-validity checks in build_alias_map, so TARGET/SOURCE are accepted as
+# aliases (KL-12) while every other SKIP_WORDS check (table names, column
+# names, unqualified tokens) is untouched.
+ALIAS_SKIP_WORDS = SKIP_WORDS - {'TARGET', 'SOURCE'}
+
 TABLE_OP_PATTERNS = [
-    (r'\bFROM\s+((?:[\w]+\.)*[\w]+)',               'SELECT'),
+    # (?<!DELETE\s) -- DELETE's own "FROM tbl" is handled by the dedicated
+    # DELETE pattern below; without this exclusion, that exact same "FROM tbl"
+    # text ALSO matches this generic pattern, phantom-tagging a SELECT op that
+    # never happened in the SQL (a never-invent violation on the ops list).
+    (r'(?<!DELETE\s)\bFROM\s+((?:[\w]+\.)*[\w]+)',  'SELECT'),
     (r'\bINNER\s+JOIN\s+((?:[\w]+\.)*[\w]+)',       'SELECT'),
     (r'\bLEFT\s+(?:OUTER\s+)?JOIN\s+((?:[\w]+\.)*[\w]+)',  'SELECT'),
     (r'\bRIGHT\s+(?:OUTER\s+)?JOIN\s+((?:[\w]+\.)*[\w]+)', 'SELECT'),
@@ -106,6 +120,17 @@ STMT_SPLIT = re.compile(
     # DELETE sub-clause is not a new top-level statement; splitting there
     # (as this did before) severs it from the tgt/src aliases declared in the
     # MERGE header, leaving that sub-clause with no alias context at all (KL-9).
+    #
+    # NOTE (found while fixing KL-12): a MERGE's `USING (SELECT ...) AS src`
+    # derived table has its own SELECT keyword, which ALSO splits right there,
+    # severing the MERGE header (with the target/src aliases) from the later
+    # ON/UPDATE SET clause that references them. Tried suppressing that split
+    # too; it does fix target./src. column resolution, but merging those
+    # chunks makes the statement's table count go from 1 to 2, which then
+    # disqualifies the derived table's own unqualified SELECT-list columns
+    # from the single-table fallback below -- trading one resolved column for
+    # another rather than a clean win. Pinned as KL-15 instead of forcing it;
+    # see test_known_limitations.py.
     r'(?<!THEN )(?=\b(?:SELECT|INSERT|UPDATE|DELETE|MERGE|TRUNCATE)\b)',
     re.IGNORECASE
 )
@@ -283,7 +308,7 @@ def build_alias_map(stmt, cte_names):
     for m in pat.finditer(stmt):
         traw  = strip_quotes(m.group(1))
         alias = m.group(2).upper()
-        if alias in SKIP_WORDS or traw.startswith('#') or traw.startswith('@'):
+        if alias in ALIAS_SKIP_WORDS or traw.startswith('#') or traw.startswith('@'):
             continue
         _, base, full = parse_table_ref(traw)
         if alias != base:
@@ -296,7 +321,7 @@ def build_alias_map(stmt, cte_names):
     for m in cte_al.finditer(stmt):
         src   = m.group(1).upper()
         alias = m.group(2).upper()
-        if src in cte_names and alias not in SKIP_WORDS:
+        if src in cte_names and alias not in ALIAS_SKIP_WORDS:
             alias_map[alias] = src
     return alias_map
 
@@ -410,6 +435,27 @@ def extract_cte_output_map(norm_alias: str, cte_names: set):
     return output_map
 
 
+def _attribute_unqualified_tokens(block: str, stmt_tables: list, physical: dict, declined_qualified: set):
+    """
+    Attribute bare (unqualified) column tokens found in `block` to the
+    statement's one table -- shared by the SELECT-list pass and the DELETE
+    WHERE-clause pass (KL-14), so both apply identical filtering.
+    """
+    block = re.sub(r'\(.*?\)', '', block, flags=re.DOTALL)
+    block = re.sub(r"\bAS\s+(?:'[^']*'|\"[^\"]*\"|[\w_]+)", '', block, flags=re.IGNORECASE)
+    for raw_token in re.split(r'[,\s]+', block):
+        raw_token = raw_token.strip()
+        token = raw_token.split('.')[-1].upper().strip()
+        if not token or token == '*' or token in SKIP_WORDS:
+            continue
+        if not re.match(r'^[A-Z_][A-Z0-9_]*$', token):
+            continue
+        if '.' in raw_token and raw_token.upper() in declined_qualified:
+            continue  # respect the qualified pass's refusal above
+        if len(stmt_tables) == 1 and stmt_tables[0] in physical:
+            physical[stmt_tables[0]]['columns'].add(token)
+
+
 def parse_sp(sql: str):
     """Main extraction function. Returns dict with tables, columns, schemas."""
     clean      = clean_sql(sql)
@@ -461,6 +507,29 @@ def parse_sp(sql: str):
                 for a, t in alias_map.items():
                     if t == full and full in physical:
                         physical[full]['aliases'].add(a)
+
+        # INSERT target column lists (KL-13): "INSERT INTO tbl (col1, col2)"
+        # names its own target columns explicitly -- no alias or single-table
+        # heuristic needed, it's unambiguous by construction. Also covers a
+        # MERGE's own "WHEN NOT MATCHED THEN INSERT (col1, col2)" sub-clause,
+        # whose implicit target is the MERGE's own header table.
+        for m in re.finditer(r'\bINSERT\s+INTO\s+((?:[\w]+\.)*[\w]+)\s*\(([^)]*)\)', stmt, re.IGNORECASE):
+            _, _, full = parse_table_ref(m.group(1).strip())
+            if full in physical:
+                for raw_col in m.group(2).split(','):
+                    col = raw_col.strip().split('.')[-1].upper()
+                    if col and col not in SKIP_WORDS and re.match(r'^[A-Z_][A-Z0-9_]*$', col):
+                        physical[full]['columns'].add(col)
+
+        merge_header = re.search(r'\bMERGE\s+(?:INTO\s+)?((?:[\w]+\.)*[\w]+)', stmt, re.IGNORECASE)
+        if merge_header:
+            _, _, merge_target = parse_table_ref(merge_header.group(1).strip())
+            if merge_target in physical:
+                for m in re.finditer(r'\bTHEN\s+INSERT\s*\(([^)]*)\)', stmt, re.IGNORECASE):
+                    for raw_col in m.group(1).split(','):
+                        col = raw_col.strip().split('.')[-1].upper()
+                        if col and col not in SKIP_WORDS and re.match(r'^[A-Z_][A-Z0-9_]*$', col):
+                            physical[merge_target]['columns'].add(col)
 
         # Qualified columns
         declined_qualified = set()  # exact "PREFIX.COL" refs seen and correctly NOT attributed
@@ -516,19 +585,15 @@ def parse_sp(sql: str):
 
         # Unqualified SELECT — single table only
         for bm in re.finditer(r'\bSELECT\b(.*?)\bFROM\b', stmt, re.IGNORECASE | re.DOTALL):
-            block = re.sub(r'\(.*?\)', '', bm.group(1), flags=re.DOTALL)
-            block = re.sub(r"\bAS\s+(?:'[^']*'|\"[^\"]*\"|[\w_]+)", '', block, flags=re.IGNORECASE)
-            for raw_token in re.split(r'[,\s]+', block):
-                raw_token = raw_token.strip()
-                token = raw_token.split('.')[-1].upper().strip()
-                if not token or token == '*' or token in SKIP_WORDS:
-                    continue
-                if not re.match(r'^[A-Z_][A-Z0-9_]*$', token):
-                    continue
-                if '.' in raw_token and raw_token.upper() in declined_qualified:
-                    continue  # respect the qualified pass's refusal above
-                if len(stmt_tables) == 1 and stmt_tables[0] in physical:
-                    physical[stmt_tables[0]]['columns'].add(token)
+            _attribute_unqualified_tokens(bm.group(1), stmt_tables, physical, declined_qualified)
+
+        # Unqualified DELETE ... WHERE — single table only (KL-14). DELETE has
+        # no SELECT list for the pass above to tokenize, so its WHERE-clause
+        # columns were never routed through any unqualified-attribution pass
+        # at all, even when the statement is unambiguously single-table.
+        for bm in re.finditer(r'\bDELETE\s+FROM\s+(?:[\w]+\.)*[\w]+\s+WHERE\b(.*?)(?=;|$)',
+                               stmt, re.IGNORECASE | re.DOTALL):
+            _attribute_unqualified_tokens(bm.group(1), stmt_tables, physical, declined_qualified)
 
     # Restore bracketed display names + deduplicate
     for key in list(physical.keys()):

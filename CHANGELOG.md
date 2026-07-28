@@ -18,7 +18,7 @@ First public release.
 - Opt-in AI migration risk narrative via HuggingFace (Qwen2.5-Coder)
 - Report metadata (tool version, UTC timestamp, tier) on every response
 - Free/enterprise tier limits (`limits.py`)
-- Five-layer test suite — 95 tests, 6 tracked limitations ([TEST_PLAN.md](TEST_PLAN.md))
+- Five-layer test suite — 106 tests, 8 tracked limitations ([TEST_PLAN.md](TEST_PLAN.md))
 - Six new fixture-corpus additions targeting hard structural patterns: `CROSS
   APPLY`/`OUTER APPLY`, recursive CTEs, `MERGE ... OUTPUT INTO`, 3-level
   nested derived-table subqueries, a second CTE/table name-collision variant,
@@ -87,6 +87,36 @@ First public release.
   an INSERT-target table now (its column list from the `INTO table
   (col_list)` clause is not parsed — out of scope for this fix, a future
   KL if ever needed).
+- **KL-12: `AS target`/`AS source` MERGE aliases now resolve.** `TARGET` and
+  `SOURCE` are real MERGE keywords (`WHEN MATCHED BY TARGET`), so
+  `SKIP_WORDS` correctly denylisted them as bare table/column names — but
+  that same denylist also rejected them as *alias* names, silently breaking
+  the single most common MERGE-aliasing convention (it's what Microsoft's
+  own MERGE docs use; KL-9 was only ever exercised with `tgt`/`src`). Fixed
+  with a narrower `ALIAS_SKIP_WORDS` set, used only at the two
+  alias-validity checks in `build_alias_map` — every other `SKIP_WORDS`
+  check (table names, column names, unqualified tokens) is untouched.
+- **KL-13: `INSERT INTO tbl (col1, col2, ...)` target column lists are now
+  captured.** The explicit column list on an INSERT's target — the single
+  most common write pattern in stored procedures — was never wired into any
+  extraction pass; only the source-side `SELECT` list was. Unambiguous by
+  construction (no alias or single-table heuristic needed), so it's
+  attributed directly. Also covers a MERGE's own
+  `WHEN NOT MATCHED THEN INSERT (col_list)`, whose implicit target is the
+  MERGE header's own table.
+- **KL-14: unqualified columns in a single-table `DELETE ... WHERE` are now
+  captured.** Per the pipeline's own single-table-only rule this was
+  unambiguous, but `DELETE` was never routed through the unqualified-column
+  pass at all — only `SELECT ... FROM` was. The shared tokenizing/filtering
+  logic was factored into `_attribute_unqualified_tokens` so both passes
+  apply identical rules.
+- **Phantom `SELECT` op on `DELETE` statements removed.** A generic
+  `\bFROM\s+table` pattern in `TABLE_OP_PATTERNS` (meant for plain
+  `SELECT ... FROM`) also matched a `DELETE FROM table`'s own `FROM`
+  clause, tagging a `SELECT` op that never happened anywhere in the SQL —
+  a never-invent violation on the *ops* list, not just columns. Now
+  excluded via `(?<!DELETE\s)`; a genuine `SELECT` elsewhere on the same
+  table is unaffected (`test_C4_delete_inside_larger_procedure_still_gets_only_delete`).
 
 ### Known limitations
 See [README](README.md#honest-limitations). Each is pinned by a strict-xfail test.
@@ -105,5 +135,17 @@ migration plan needs to know about can be silently absent, indistinguishable
 from "this procedure never touches it." Avoid naming CTEs after real tables
 until KL-7 is fixed.
 
-KL-2 through KL-6 and KL-7b remain documented, honest edge cases — see the
+**New — KL-15:** found while fixing KL-12/KL-13. A MERGE's `USING (SELECT
+...) AS src` derived table has its own `SELECT` keyword, which `STMT_SPLIT`
+treats as a statement boundary the same way it used to split a MERGE's own
+`WHEN ... THEN` clause (KL-9) — severing the header's `target`/`src` aliases
+from the `ON`/`UPDATE SET`/`INSERT` clauses that use them. A fix symmetric to
+KL-9's (suppressing that split too) was prototyped and does resolve those
+columns, but merging the two statement chunks also merges their table count
+for the single-table unqualified-column fallback, which then stops resolving
+the derived table's own unqualified `SELECT`-list columns — trading one
+resolved column for another rather than a clean win. Pinned instead of
+forced; see the `STMT_SPLIT` comment in `main.py`.
+
+KL-2 through KL-7b and KL-15 remain documented, honest edge cases — see the
 README table for what each one is and why it hasn't been fixed yet.

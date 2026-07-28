@@ -319,6 +319,81 @@ def test_output_into_target_table_is_registered():
     assert "INSERT" in physical["AUDIT.CHANGELOG"]["ops"]
 
 
+# ── Bug fix: `AS target`/`AS source` MERGE aliases (formerly KL-12) ────────────
+
+def test_merge_target_and_source_keyword_aliases_resolve():
+    """
+    TARGET and SOURCE are real MERGE keywords (WHEN MATCHED BY TARGET/SOURCE),
+    so SKIP_WORDS correctly denylists them as bare table/column names -- but
+    that same denylist was also rejecting them as ALIAS names in
+    build_alias_map, and `AS target`/`AS source` is one of the most common
+    MERGE-aliasing conventions (it's what Microsoft's own MERGE docs use).
+    ALIAS_SKIP_WORDS (main.py) now exempts them at the alias-validity checks
+    only -- every other SKIP_WORDS use (table/column names) is untouched.
+    """
+    sql = """
+    MERGE dbo.Party AS target
+    USING dbo.PartyStaging AS source
+    ON target.Id = source.Id
+    WHEN MATCHED THEN UPDATE SET target.Name = source.Name;
+    """
+    physical, _ = parse_sp(sql)
+    assert {"ID", "NAME"} <= cols_of(physical, "DBO.PARTY")
+    assert {"ID", "NAME"} <= cols_of(physical, "DBO.PARTYSTAGING")
+    assert "TARGET" in physical["DBO.PARTY"]["aliases"]
+    assert "SOURCE" in physical["DBO.PARTYSTAGING"]["aliases"]
+
+
+# ── Bug fix: INSERT target column lists (formerly KL-13) ───────────────────────
+
+def test_insert_target_column_list_is_captured():
+    """
+    `INSERT INTO tbl (col1, col2, ...)` names its own target columns
+    explicitly -- unambiguous by construction, no alias or single-table
+    heuristic needed. This column list was never wired into any extraction
+    pass at all; only the SELECT-list's source-side columns were captured.
+    """
+    sql = "INSERT INTO audit.ActivityLog (EntityType, EntityID, Action) VALUES ('X', 1, 'Y');"
+    physical, _ = parse_sp(sql)
+    assert cols_of(physical, "AUDIT.ACTIVITYLOG") == {"ENTITYTYPE", "ENTITYID", "ACTION"}
+
+
+def test_insert_select_target_column_list_is_captured_alongside_source_columns():
+    """The INSERT target's own list and the SELECT's source columns are independent facts."""
+    sql = (
+        "INSERT INTO audit.LowStockAlerts (ProductID, WarehouseID) "
+        "SELECT ProductID, WarehouseID FROM warehouse.Inventory WHERE ProductID = 1;"
+    )
+    physical, _ = parse_sp(sql)
+    assert cols_of(physical, "AUDIT.LOWSTOCKALERTS") == {"PRODUCTID", "WAREHOUSEID"}
+    assert cols_of(physical, "WAREHOUSE.INVENTORY") == {"PRODUCTID", "WAREHOUSEID"}
+
+
+def test_merge_when_not_matched_insert_column_list_is_captured():
+    """A MERGE's own `WHEN NOT MATCHED THEN INSERT (col_list)` implicitly targets the MERGE header table."""
+    sql = """
+    MERGE dbo.Party AS target
+    USING dbo.PartyStaging AS src
+    ON target.Id = src.Id
+    WHEN NOT MATCHED THEN INSERT (Id, Name) VALUES (src.Id, src.Name);
+    """
+    physical, _ = parse_sp(sql)
+    assert {"ID", "NAME"} <= cols_of(physical, "DBO.PARTY")
+
+
+# ── Bug fix: unqualified columns in a single-table DELETE WHERE (formerly KL-14) ─
+
+def test_delete_where_unqualified_column_is_captured():
+    """
+    Per the pipeline's own single-table-only rule, an unaliased DELETE
+    touching exactly one table is unambiguous -- but DELETE was never routed
+    through the unqualified-column pass at all (only SELECT...FROM was).
+    """
+    sql = "DELETE FROM warehouse.StockTransfers WHERE ProductID = 1 AND LastSyncDate < GETDATE();"
+    physical, _ = parse_sp(sql)
+    assert cols_of(physical, "WAREHOUSE.STOCKTRANSFERS") == {"PRODUCTID", "LASTSYNCDATE"}
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))
