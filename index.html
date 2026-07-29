@@ -853,61 +853,89 @@ function sortTable(tid, col) {
 // objects and freeze panes on write (verified against the exact CDN build
 // this app used to load). ExcelJS is the MIT-licensed, browser-CDN-loadable
 // replacement that supports all of it with no build step.
-const EXCEL_ACCENT = 'FF00C2A8';
-const EXCEL_STRIPE = 'FFF2F2F2';
-// Web UI badge colors are tuned for a dark navy background; the same hex
-// values would be unreadable (esp. yellow) as text on Excel's white sheet
-// background, so these are darker/solid equivalents in the same hue family.
-const OP_COLORS = {
-  SELECT:   'FF2E7D32',
-  INSERT:   'FFE65100',
-  UPDATE:   'FFB8860B',
-  DELETE:   'FFC62828',
-  MERGE:    'FF7B1FA2',
-  TRUNCATE: 'FF8B0000',
-};
+//
+// Visual language ported from an earlier report (sp_analysis_v2.xlsx):
+// navy header bars, blue/white zebra striping, Arial throughout, and
+// operations color-coded as bold font color. Content/sheets/data model are
+// unchanged from before -- this file only touches styling.
+const NAVY        = 'FF1F3864';
+const STRIPE_BLUE = 'FFDCE6F1';
+const WHITE       = 'FFFFFFFF';
+const MUTED_GRAY  = 'FF595959';
+const BODY_FONT   = 'Arial';
+const BODY_SIZE   = 10;
 
-function opsRichText(opsStr) {
+const OP_COLORS = {
+  SELECT:   'FF375623',
+  INSERT:   'FF833C00',
+  UPDATE:   'FF7F6000',
+  DELETE:   'FFC00000',
+  MERGE:    'FF5B2C6F',
+  TRUNCATE: 'FF7B241C',
+};
+// When a cell lists multiple ops (e.g. "SELECT, UPDATE"), the whole cell
+// takes ONE color rather than per-op rich text -- the most consequential
+// (write-heaviest) operation present wins, so the color reflects the
+// riskiest thing this table has done to it.
+const OP_PRIORITY = ['TRUNCATE','DELETE','MERGE','UPDATE','INSERT','SELECT'];
+
+function dominantOpColor(opsStr) {
   const ops = (opsStr || '').split(',').map(s=>s.trim()).filter(Boolean);
-  if (!ops.length) return opsStr || '';
-  const runs = [];
-  ops.forEach((op,i) => {
-    if (i>0) runs.push({ font:{ color:{argb:'FF888888'} }, text:', ' });
-    runs.push({ font:{ bold:true, color:{argb: OP_COLORS[op] || 'FF444444'} }, text: op });
-  });
-  return { richText: runs };
+  for (const p of OP_PRIORITY) if (ops.includes(p)) return OP_COLORS[p];
+  return null;
 }
 
 function styleHeaderRow(row) {
   row.eachCell(cell => {
-    cell.font = { bold:true, color:{argb:'FFFFFFFF'} };
-    cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb: EXCEL_ACCENT} };
+    cell.font = { name:BODY_FONT, size:BODY_SIZE, bold:true, color:{argb:WHITE} };
+    cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb:NAVY} };
     cell.alignment = { vertical:'middle' };
   });
-  row.height = 20;
+  row.height = 18;
 }
 
-function stripeRows(ws, firstDataRow, lastDataRow) {
+// Zebra-shades every data row (even row number = light blue, odd = white,
+// matching the reference file's pattern) and applies the base body font;
+// the Operations column additionally gets bold+color-coded per dominantOpColor.
+function styleDataRows(ws, firstDataRow, lastDataRow, colCount, opsColIndex) {
   for (let r = firstDataRow; r <= lastDataRow; r++) {
-    if ((r - firstDataRow) % 2 === 1) {
-      ws.getRow(r).eachCell({ includeEmpty:true }, cell => {
-        cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb: EXCEL_STRIPE} };
-      });
+    const row = ws.getRow(r);
+    const fillColor = (r % 2 === 0) ? STRIPE_BLUE : WHITE;
+    for (let c = 1; c <= colCount; c++) {
+      const cell = row.getCell(c);
+      cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb:fillColor} };
+      if (c === opsColIndex) {
+        const color = dominantOpColor(cell.value);
+        cell.font = color
+          ? { name:BODY_FONT, size:BODY_SIZE, bold:true, color:{argb:color} }
+          : { name:BODY_FONT, size:BODY_SIZE };
+      } else {
+        cell.font = { name:BODY_FONT, size:BODY_SIZE };
+      }
     }
   }
 }
 
-function autoFitColumns(ws, {min=8, max=60, pad=2} = {}) {
-  ws.columns.forEach(col => {
-    let maxLen = 0;
+// Sensible minimum widths per column, keyed by header text, matching the
+// reference's proportions (Procedure~32, Table Name~28, etc.) -- content
+// that needs more still grows the column, so nothing ever truncates.
+const COLUMN_MIN_WIDTHS = {
+  '#':6, 'Procedure':32, 'File':20, 'Source File':20, 'Dialect':18,
+  'Tables':12, 'Columns':12, 'Dynamic SQL?':14,
+  'Schema':16, 'Table Name':28, 'Operations':24, 'Aliases':18,
+  'Column Name':24, 'Procedures':32,
+};
+
+function autoFitColumns(ws, headerRowNum) {
+  const headerVals = ws.getRow(headerRowNum).values;
+  ws.columns.forEach((col, idx) => {
+    const headerText = headerVals[idx+1];
+    let maxLen = COLUMN_MIN_WIDTHS[headerText] || 8;
     col.eachCell({ includeEmpty:true }, cell => {
-      const v = cell.value;
-      const text = v && typeof v === 'object' && v.richText
-        ? v.richText.map(r=>r.text).join('')
-        : (v == null ? '' : String(v));
-      text.split('\n').forEach(line => { maxLen = Math.max(maxLen, line.length); });
+      const text = cell.value == null ? '' : String(cell.value);
+      text.split('\n').forEach(line => { maxLen = Math.max(maxLen, line.length + 2); });
     });
-    col.width = Math.min(max, Math.max(min, maxLen + pad));
+    col.width = Math.min(60, maxLen);
   });
 }
 
@@ -915,20 +943,20 @@ function autoFitColumns(ws, {min=8, max=60, pad=2} = {}) {
 // rich-text runs, so the exported cell keeps the same visual hierarchy the
 // web UI shows (rather than the flattened, undecorated .textContent string).
 function aiNodeFont(el) {
-  if (!el || el.nodeType !== 1) return {};
-  if (el.classList.contains('ai-h1')) return { bold:true, size:14 };
-  if (el.classList.contains('ai-h2')) return { bold:true, size:12 };
-  if (el.classList.contains('ai-h3')) return { bold:true, size:11, color:{argb:'FF00906F'} };
-  if (el.tagName === 'STRONG') return { bold:true };
+  if (!el || el.nodeType !== 1) return { name:BODY_FONT };
+  if (el.classList.contains('ai-h1')) return { name:BODY_FONT, bold:true, size:14 };
+  if (el.classList.contains('ai-h2')) return { name:BODY_FONT, bold:true, size:12 };
+  if (el.classList.contains('ai-h3')) return { name:BODY_FONT, bold:true, size:11, color:{argb:NAVY} };
+  if (el.tagName === 'STRONG') return { name:BODY_FONT, bold:true };
   if (el.tagName === 'CODE') return { name:'Consolas', size:10.5 };
-  return {};
+  return { name:BODY_FONT };
 }
 
 function aiTextToRichRuns(container) {
   const runs = [];
   container.childNodes.forEach(node => {
     if (node.nodeType === 3 && node.textContent) {
-      runs.push({ font:{}, text: node.textContent });
+      runs.push({ font:{ name:BODY_FONT }, text: node.textContent });
     } else if (node.nodeType === 1 && node.textContent) {
       runs.push({ font: aiNodeFont(node), text: node.textContent });
     }
@@ -951,36 +979,37 @@ async function downloadExcel() {
     sumWs.addRow([i+1,p.name,p.file,p.dialect,p.table_count,p.col_count,p.is_dynamic?'⚠ YES':'No']);
   });
   sumWs.mergeCells(1,1,1,7);
-  sumWs.getCell(1,1).font = { bold:true, size:18, color:{argb: EXCEL_ACCENT} };
-  sumWs.getRow(1).height = 26;
+  sumWs.getCell(1,1).font = { name:BODY_FONT, bold:true, size:14, color:{argb:WHITE} };
+  sumWs.getCell(1,1).fill = { type:'pattern', pattern:'solid', fgColor:{argb:NAVY} };
+  sumWs.getRow(1).height = 22;
   sumWs.mergeCells(2,1,2,7);
-  sumWs.getCell(2,1).font = { italic:true, size:10, color:{argb:'FF888888'} };
+  sumWs.getCell(2,1).font = { name:BODY_FONT, size:9, color:{argb:MUTED_GRAY} };
   styleHeaderRow(sumHeader);
-  stripeRows(sumWs, sumHeader.number+1, sumWs.rowCount);
+  styleDataRows(sumWs, sumHeader.number+1, sumWs.rowCount, 7, null);
   sumWs.views = [{ state:'frozen', ySplit: sumHeader.number }];
-  autoFitColumns(sumWs);
+  autoFitColumns(sumWs, sumHeader.number);
 
   // ── Physical Tables ──
   const tblWs = wb.addWorksheet('Physical Tables');
   const tblHeader = tblWs.addRow(['Procedure','Schema','Table Name','Operations','Aliases','Source File']);
   d.tables.forEach(t=>{
-    tblWs.addRow([t.proc, t.schema, t.table, opsRichText(t.ops), t.aliases, t.file]);
+    tblWs.addRow([t.proc, t.schema, t.table, t.ops, t.aliases, t.file]);
   });
   styleHeaderRow(tblHeader);
-  stripeRows(tblWs, 2, tblWs.rowCount);
+  styleDataRows(tblWs, 2, tblWs.rowCount, 6, 4);
   tblWs.views = [{ state:'frozen', ySplit:1 }];
-  autoFitColumns(tblWs);
+  autoFitColumns(tblWs, 1);
 
   // ── Columns Detail ──
   const colWs = wb.addWorksheet('Columns Detail');
   const colHeader = colWs.addRow(['Procedure','Schema','Table Name','Column Name','Operations','Source File']);
   d.columns.forEach(c=>{
-    colWs.addRow([c.proc, c.schema, c.table, c.col, opsRichText(c.ops), c.file]);
+    colWs.addRow([c.proc, c.schema, c.table, c.col, c.ops, c.file]);
   });
   styleHeaderRow(colHeader);
-  stripeRows(colWs, 2, colWs.rowCount);
+  styleDataRows(colWs, 2, colWs.rowCount, 6, 5);
   colWs.views = [{ state:'frozen', ySplit:1 }];
-  autoFitColumns(colWs);
+  autoFitColumns(colWs, 1);
 
   // ── Schema Breakdown ──
   const schWs = wb.addWorksheet('Schema Breakdown');
@@ -988,18 +1017,18 @@ async function downloadExcel() {
   for (const [schema,tables] of Object.entries(d.schema_map).sort()) {
     for (const [tname,tinfo] of Object.entries(tables).sort()) {
       if (!tinfo.cols.length) {
-        schWs.addRow([schema,tname,'(no columns resolved)',opsRichText(tinfo.ops),tinfo.procs.join(', ')]);
+        schWs.addRow([schema,tname,'(no columns resolved)',tinfo.ops,tinfo.procs.join(', ')]);
       } else {
         for (const col of tinfo.cols.sort()) {
-          schWs.addRow([schema,tname,col,opsRichText(tinfo.ops),tinfo.procs.join(', ')]);
+          schWs.addRow([schema,tname,col,tinfo.ops,tinfo.procs.join(', ')]);
         }
       }
     }
   }
   styleHeaderRow(schHeader);
-  stripeRows(schWs, 2, schWs.rowCount);
+  styleDataRows(schWs, 2, schWs.rowCount, 5, 4);
   schWs.views = [{ state:'frozen', ySplit:1 }];
-  autoFitColumns(schWs);
+  autoFitColumns(schWs, 1);
 
   // ── AI Insights (if available) ──
   const aiTextEl = document.getElementById('aiText');
@@ -1011,11 +1040,38 @@ async function downloadExcel() {
     aiWs.addRow([]);
     const runs = aiTextToRichRuns(aiTextEl);
     const bodyRow = aiWs.addRow([ runs.length ? { richText: runs } : aiTextEl.textContent ]);
-    aiWs.getCell(1,1).font = { bold:true, size:14, color:{argb: EXCEL_ACCENT} };
-    aiWs.getCell(2,1).font = { italic:true, size:10, color:{argb:'FF888888'} };
+    aiWs.getCell(1,1).font = { name:BODY_FONT, bold:true, size:14, color:{argb:NAVY} };
+    aiWs.getCell(2,1).font = { name:BODY_FONT, size:9, color:{argb:MUTED_GRAY} };
     bodyRow.getCell(1).alignment = { wrapText:true, vertical:'top' };
     aiWs.getColumn(1).width = 100;
   }
+
+  // ── Legend ──
+  const legWs = wb.addWorksheet('Legend');
+  legWs.addRow(['Operation Color Legend']);
+  legWs.mergeCells(1,1,1,3);
+  legWs.getCell(1,1).font = { name:BODY_FONT, bold:true, size:12, color:{argb:WHITE} };
+  legWs.getCell(1,1).fill = { type:'pattern', pattern:'solid', fgColor:{argb:NAVY} };
+  legWs.getRow(1).height = 20;
+  const LEGEND_ITEMS = [
+    ['SELECT',   'Data read — FROM, JOIN, USING'],
+    ['INSERT',   'Data write — INSERT INTO'],
+    ['UPDATE',   'Data modification — UPDATE ... SET'],
+    ['DELETE',   'Data removal — DELETE FROM'],
+    ['MERGE',    'Upsert — MERGE INTO ... USING'],
+    ['TRUNCATE', 'Full wipe — TRUNCATE TABLE'],
+  ];
+  LEGEND_ITEMS.forEach(([op, desc]) => {
+    const row = legWs.addRow([op, '●', desc]);
+    const color = OP_COLORS[op];
+    row.getCell(1).font = { name:BODY_FONT, bold:true, size:11, color:{argb:color} };
+    row.getCell(2).font = { size:14, color:{argb:color} };
+    row.getCell(3).font = { name:BODY_FONT, size:10 };
+  });
+  legWs.getColumn(1).width = 16;
+  legWs.getColumn(2).width = 5;
+  legWs.getColumn(3).width = 60;
+  legWs.views = [{ state:'frozen', ySplit:1 }];
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
