@@ -168,8 +168,9 @@ tr:hover td{background:rgba(0,194,168,.04)}
 .schema-count{font-size:11px;color:var(--text-dim)}
 .schema-table-row{padding:8px 14px;border-bottom:1px solid rgba(42,63,87,.4)}
 .schema-table-row:last-child{border-bottom:none}
-.schema-table-name{font-weight:600;font-size:13px;margin-bottom:5px;display:flex;align-items:center;justify-content:space-between;cursor:pointer}
+.schema-table-name{font-weight:600;font-size:13px;margin-bottom:5px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;row-gap:4px;column-gap:10px;cursor:pointer}
 .schema-table-name:hover{color:var(--accent)}
+.schema-table-ops{display:flex;align-items:center;gap:6px;flex-wrap:wrap;row-gap:4px}
 .schema-cols{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .col-tag{background:rgba(0,194,168,.08);color:var(--accent);border:1px solid rgba(0,194,168,.2);font-size:11px;padding:1px 7px;border-radius:3px;font-family:var(--font-mono)}
 
@@ -697,7 +698,7 @@ function renderSchemaTab(data) {
           <div class="schema-table-row">
             <div class="schema-table-name" onclick="toggleCols(this)">
               <span>${tname}</span>
-              <span style="display:flex;align-items:center;gap:6px">
+              <span class="schema-table-ops">
                 ${opBadges(tinfo.ops)}
                 <span style="color:var(--text-dim);font-size:12px">▾</span>
               </span>
