@@ -263,7 +263,7 @@ Interactive docs at `/docs` (Swagger) when the backend is running.
 ## Testing
 
 ```bash
-pytest tests/ -v          # 88 passing, 6 tracked limitations
+pytest tests/ -v          # 98 passing, 8 tracked limitations
 ```
 
 Five layers, all CI-gated on every PR — see **[TEST_PLAN.md](TEST_PLAN.md)**:
@@ -285,12 +285,10 @@ changed nothing; a PR *with* one must explain it.
 
 ## Roadmap
 
-- **v1.1** — batch CLI (`spcompanion analyze ./sql-dir/`), PyPI package,
-  per-extraction confidence scores
-- **v1.2** — pluggable AI backends (AWS Bedrock, local Ollama for air-gapped
-  environments), migration dependency graph
-- **v2.0** — QueryTuner integration: SP analysis as the migration-planning
-  module of [querytuner.com](https://querytuner.com)
+Where this heads next — direction, not a commitment with dates:
+
+- **v1.1** — batch CLI for estate-scale runs, a per-extraction confidence indicator on each table/column
+- **v1.2** — an AST backend for the SELECT-list parsing (fixes the KL-3/KL-5/KL-15 class of limitations), a migration dependency graph (which procedures share tables → sequencing)
 
 ## Contributing · Conduct · Security
 
