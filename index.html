@@ -6,7 +6,7 @@
 <title>SPXray — Every migration tool needs a DB connection. This one needs a folder of .sql files.</title>
 <link rel="icon" type="image/png" sizes="32x32" href="assets/logo/spxray-mark-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="assets/logo/spxray-mark-180.png">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
 :root {
   --navy:        #0D1B2A;
@@ -848,55 +848,185 @@ function sortTable(tid, col) {
 }
 
 // ── Download Excel ─────────────────────────────────────────────
-function downloadExcel() {
+// Styling only (fills, fonts, freeze panes, wrap text) needs a library that
+// actually writes styles -- SheetJS's free build silently drops cell .s
+// objects and freeze panes on write (verified against the exact CDN build
+// this app used to load). ExcelJS is the MIT-licensed, browser-CDN-loadable
+// replacement that supports all of it with no build step.
+const EXCEL_ACCENT = 'FF00C2A8';
+const EXCEL_STRIPE = 'FFF2F2F2';
+// Web UI badge colors are tuned for a dark navy background; the same hex
+// values would be unreadable (esp. yellow) as text on Excel's white sheet
+// background, so these are darker/solid equivalents in the same hue family.
+const OP_COLORS = {
+  SELECT:   'FF2E7D32',
+  INSERT:   'FFE65100',
+  UPDATE:   'FFB8860B',
+  DELETE:   'FFC62828',
+  MERGE:    'FF7B1FA2',
+  TRUNCATE: 'FF8B0000',
+};
+
+function opsRichText(opsStr) {
+  const ops = (opsStr || '').split(',').map(s=>s.trim()).filter(Boolean);
+  if (!ops.length) return opsStr || '';
+  const runs = [];
+  ops.forEach((op,i) => {
+    if (i>0) runs.push({ font:{ color:{argb:'FF888888'} }, text:', ' });
+    runs.push({ font:{ bold:true, color:{argb: OP_COLORS[op] || 'FF444444'} }, text: op });
+  });
+  return { richText: runs };
+}
+
+function styleHeaderRow(row) {
+  row.eachCell(cell => {
+    cell.font = { bold:true, color:{argb:'FFFFFFFF'} };
+    cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb: EXCEL_ACCENT} };
+    cell.alignment = { vertical:'middle' };
+  });
+  row.height = 20;
+}
+
+function stripeRows(ws, firstDataRow, lastDataRow) {
+  for (let r = firstDataRow; r <= lastDataRow; r++) {
+    if ((r - firstDataRow) % 2 === 1) {
+      ws.getRow(r).eachCell({ includeEmpty:true }, cell => {
+        cell.fill = { type:'pattern', pattern:'solid', fgColor:{argb: EXCEL_STRIPE} };
+      });
+    }
+  }
+}
+
+function autoFitColumns(ws, {min=8, max=60, pad=2} = {}) {
+  ws.columns.forEach(col => {
+    let maxLen = 0;
+    col.eachCell({ includeEmpty:true }, cell => {
+      const v = cell.value;
+      const text = v && typeof v === 'object' && v.richText
+        ? v.richText.map(r=>r.text).join('')
+        : (v == null ? '' : String(v));
+      text.split('\n').forEach(line => { maxLen = Math.max(maxLen, line.length); });
+    });
+    col.width = Math.min(max, Math.max(min, maxLen + pad));
+  });
+}
+
+// Reconstructs the rendered AI narrative's heading/bold structure as Excel
+// rich-text runs, so the exported cell keeps the same visual hierarchy the
+// web UI shows (rather than the flattened, undecorated .textContent string).
+function aiNodeFont(el) {
+  if (!el || el.nodeType !== 1) return {};
+  if (el.classList.contains('ai-h1')) return { bold:true, size:14 };
+  if (el.classList.contains('ai-h2')) return { bold:true, size:12 };
+  if (el.classList.contains('ai-h3')) return { bold:true, size:11, color:{argb:'FF00906F'} };
+  if (el.tagName === 'STRONG') return { bold:true };
+  if (el.tagName === 'CODE') return { name:'Consolas', size:10.5 };
+  return {};
+}
+
+function aiTextToRichRuns(container) {
+  const runs = [];
+  container.childNodes.forEach(node => {
+    if (node.nodeType === 3 && node.textContent) {
+      runs.push({ font:{}, text: node.textContent });
+    } else if (node.nodeType === 1 && node.textContent) {
+      runs.push({ font: aiNodeFont(node), text: node.textContent });
+    }
+  });
+  return runs;
+}
+
+async function downloadExcel() {
   if (!analysisResult) return;
   const d  = analysisResult;
-  const wb = XLSX.utils.book_new();
+  const wb = new ExcelJS.Workbook();
 
-  const sumData = [
-    ['SPXray — Analysis Report'],
-    [`Generated: ${new Date().toLocaleString()}`],[],
-    ['#','Procedure','File','Dialect','Tables','Columns','Dynamic SQL?'],
-    ...d.procedures.map((p,i)=>[i+1,p.name,p.file,p.dialect,p.table_count,p.col_count,p.is_dynamic?'⚠ YES':'No'])
-  ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sumData), 'Summary');
+  // ── Summary ──
+  const sumWs = wb.addWorksheet('Summary');
+  sumWs.addRow(['SPXray — Analysis Report']);
+  sumWs.addRow([`Generated: ${new Date().toLocaleString()}`]);
+  sumWs.addRow([]);
+  const sumHeader = sumWs.addRow(['#','Procedure','File','Dialect','Tables','Columns','Dynamic SQL?']);
+  d.procedures.forEach((p,i)=>{
+    sumWs.addRow([i+1,p.name,p.file,p.dialect,p.table_count,p.col_count,p.is_dynamic?'⚠ YES':'No']);
+  });
+  sumWs.mergeCells(1,1,1,7);
+  sumWs.getCell(1,1).font = { bold:true, size:18, color:{argb: EXCEL_ACCENT} };
+  sumWs.getRow(1).height = 26;
+  sumWs.mergeCells(2,1,2,7);
+  sumWs.getCell(2,1).font = { italic:true, size:10, color:{argb:'FF888888'} };
+  styleHeaderRow(sumHeader);
+  stripeRows(sumWs, sumHeader.number+1, sumWs.rowCount);
+  sumWs.views = [{ state:'frozen', ySplit: sumHeader.number }];
+  autoFitColumns(sumWs);
 
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['Procedure','Schema','Table Name','Operations','Aliases','Source File'],
-    ...d.tables.map(t=>[t.proc,t.schema,t.table,t.ops,t.aliases,t.file])
-  ]), 'Physical Tables');
+  // ── Physical Tables ──
+  const tblWs = wb.addWorksheet('Physical Tables');
+  const tblHeader = tblWs.addRow(['Procedure','Schema','Table Name','Operations','Aliases','Source File']);
+  d.tables.forEach(t=>{
+    tblWs.addRow([t.proc, t.schema, t.table, opsRichText(t.ops), t.aliases, t.file]);
+  });
+  styleHeaderRow(tblHeader);
+  stripeRows(tblWs, 2, tblWs.rowCount);
+  tblWs.views = [{ state:'frozen', ySplit:1 }];
+  autoFitColumns(tblWs);
 
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['Procedure','Schema','Table Name','Column Name','Operations','Source File'],
-    ...d.columns.map(c=>[c.proc,c.schema,c.table,c.col,c.ops,c.file])
-  ]), 'Columns Detail');
+  // ── Columns Detail ──
+  const colWs = wb.addWorksheet('Columns Detail');
+  const colHeader = colWs.addRow(['Procedure','Schema','Table Name','Column Name','Operations','Source File']);
+  d.columns.forEach(c=>{
+    colWs.addRow([c.proc, c.schema, c.table, c.col, opsRichText(c.ops), c.file]);
+  });
+  styleHeaderRow(colHeader);
+  stripeRows(colWs, 2, colWs.rowCount);
+  colWs.views = [{ state:'frozen', ySplit:1 }];
+  autoFitColumns(colWs);
 
-  const schData = [['Schema','Table Name','Column Name','Operations','Procedures']];
+  // ── Schema Breakdown ──
+  const schWs = wb.addWorksheet('Schema Breakdown');
+  const schHeader = schWs.addRow(['Schema','Table Name','Column Name','Operations','Procedures']);
   for (const [schema,tables] of Object.entries(d.schema_map).sort()) {
     for (const [tname,tinfo] of Object.entries(tables).sort()) {
       if (!tinfo.cols.length) {
-        schData.push([schema,tname,'(no columns resolved)',tinfo.ops,tinfo.procs.join(', ')]);
+        schWs.addRow([schema,tname,'(no columns resolved)',opsRichText(tinfo.ops),tinfo.procs.join(', ')]);
       } else {
         for (const col of tinfo.cols.sort()) {
-          schData.push([schema,tname,col,tinfo.ops,tinfo.procs.join(', ')]);
+          schWs.addRow([schema,tname,col,opsRichText(tinfo.ops),tinfo.procs.join(', ')]);
         }
       }
     }
   }
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(schData), 'Schema Breakdown');
+  styleHeaderRow(schHeader);
+  stripeRows(schWs, 2, schWs.rowCount);
+  schWs.views = [{ state:'frozen', ySplit:1 }];
+  autoFitColumns(schWs);
 
-  // AI insights sheet if available
-  const aiText = document.getElementById('aiText')?.textContent;
-  if (aiText) {
+  // ── AI Insights (if available) ──
+  const aiTextEl = document.getElementById('aiText');
+  if (aiTextEl && aiTextEl.textContent.trim()) {
     const aiModel = document.getElementById('aiModelTag')?.textContent || 'unknown';
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ['AI Migration Risk Assessment'],
-      [`Model: ${aiModel} via HuggingFace`],[],
-      [aiText]
-    ]), 'AI Insights');
+    const aiWs = wb.addWorksheet('AI Insights');
+    aiWs.addRow(['AI Migration Risk Assessment']);
+    aiWs.addRow([`Model: ${aiModel} via HuggingFace`]);
+    aiWs.addRow([]);
+    const runs = aiTextToRichRuns(aiTextEl);
+    const bodyRow = aiWs.addRow([ runs.length ? { richText: runs } : aiTextEl.textContent ]);
+    aiWs.getCell(1,1).font = { bold:true, size:14, color:{argb: EXCEL_ACCENT} };
+    aiWs.getCell(2,1).font = { italic:true, size:10, color:{argb:'FF888888'} };
+    bodyRow.getCell(1).alignment = { wrapText:true, vertical:'top' };
+    aiWs.getColumn(1).width = 100;
   }
 
-  XLSX.writeFile(wb, `sp_migration_${new Date().toISOString().slice(0,10)}.xlsx`);
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url  = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sp_migration_${new Date().toISOString().slice(0,10)}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
   showToast('⬇','Excel downloaded');
 }
 
