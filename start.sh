@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔍 SP Migration Companion — Local Dev Startup"
+echo "🔍 SPXray — Local Dev Startup"
 echo "=============================================="
 echo ""
 
@@ -84,7 +84,7 @@ fi
 
 echo ""
 echo "=============================================="
-echo "✅ SP Migration Companion is ready!"
+echo "✅ SPXray is ready!"
 echo ""
 echo "   Frontend: file://$(pwd)/index.html"
 echo "   Backend:  http://localhost:8000"
