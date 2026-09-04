@@ -23,6 +23,29 @@ First public release.
   APPLY`/`OUTER APPLY`, recursive CTEs, `MERGE ... OUTPUT INTO`, 3-level
   nested derived-table subqueries, a second CTE/table name-collision variant,
   and a UTF-16-with-BOM encoded file
+- Paste-SQL input mode alongside file upload, with four labeled demo examples
+  (simple, multi-CTE, MERGE+audit, cross-schema CRUD) sourced from the test fixtures
+- GitHub link + live star-count button and a "New Analysis"/live-count start
+  flow in the header
+- Excel export rebuilt on ExcelJS: navy header bars, blue/white zebra
+  striping, per-operation color-coding, a Legend sheet, and auto-fit columns
+  — ported from the original `sp_analysis_v2.xlsx` visual language
+- Client-side paste-size guard mirroring the free tier's 5 MB limit, shown
+  inline before Analyze is clickable
+- Cold-start messaging for the free Render backend: a spinner + "waking up"
+  notice appears once `/health` or `/analyze` runs past ~2s, distinct from a
+  genuinely-unreachable-backend message, and clears cleanly once resolved
+- The "API Endpoint" bar (URL + Connected/HF status) collapsed behind a ⚙
+  toggle in the header, with a small always-visible status dot, so a
+  first-time visitor's first impression is the hero + upload box
+- `<meta>` description, Open Graph, and Twitter Card tags, plus a hardened
+  favicon (SVG + PNG fallbacks, reusing the existing brand mark) so shared
+  links render a real preview
+- Mobile (375px) layout fixes, keyboard-accessible schema-table toggles,
+  visible focus outlines, and an explicit empty-state message when a file
+  contains no physical tables (only temp tables/CTEs)
+- Roadmap/issue-triage pass: every known limitation (KL-2 through KL-15) and
+  several post-1.0 enhancement ideas filed as tracked GitHub issues
 
 ### Fixed
 - **String literals are now masked before extraction.** Previously
