@@ -1,7 +1,10 @@
 ---
 name: Parser bug (missed table / wrong column)
 about: The analyzer missed or misattributed something in your SQL
-labels: parser-bug
+title: ''
+labels: ''
+assignees: ''
+
 ---
 
 **Minimal SQL that reproduces it** (sanitize names as needed):
