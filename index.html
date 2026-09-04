@@ -4,7 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SPXray — Every migration tool needs a DB connection. This one needs a folder of .sql files.</title>
+<meta name="description" content="SPXray statically analyzes SQL stored procedures to extract physical tables, columns, schemas and CRUD operations for database migration planning — no DB connection, no credentials, just a folder of .sql files.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://spxray.vercel.app">
+<meta property="og:title" content="SPXray — Stored Procedure Analyzer">
+<meta property="og:description" content="Every other database migration tool needs a database connection or a credit card. This one needs a folder of .sql files. Deterministic SQL parsing — no LLM in the extraction path.">
+<meta property="og:image" content="https://spxray.vercel.app/assets/logo/spxray-mark-512.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="SPXray — Stored Procedure Analyzer">
+<meta name="twitter:description" content="Every other database migration tool needs a database connection or a credit card. This one needs a folder of .sql files.">
+<meta name="twitter:image" content="https://spxray.vercel.app/assets/logo/spxray-mark-512.png">
+<link rel="icon" type="image/svg+xml" href="assets/logo/spxray-mark.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/logo/spxray-mark-32.png">
+<link rel="shortcut icon" href="assets/logo/spxray-mark-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="assets/logo/spxray-mark-180.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script defer src="/_vercel/insights/script.js"></script>
@@ -50,17 +62,26 @@ body{background:var(--navy);color:var(--text-primary);font-family:var(--font-bod
 .gh-link:hover{color:var(--text-primary);border-color:var(--border-light);background:var(--surface-raised)}
 .gh-link svg{width:16px;height:16px;fill:currentColor;flex-shrink:0}
 .gh-star-wrap{display:flex;align-items:center;height:20px}
+.gear-btn{display:flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--border);color:var(--text-secondary);border-radius:var(--radius);padding:6px 9px;font-size:14px;cursor:pointer;line-height:1}
+.gear-btn:hover{color:var(--text-primary);border-color:var(--border-light);background:var(--surface-raised)}
 
-/* API config bar */
-.api-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 24px;display:flex;align-items:center;gap:12px;font-size:12px}
+/* API config bar — collapsed by default; the gear toggle in the header reveals it */
+.api-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 24px;display:none;align-items:center;gap:12px;font-size:12px;flex-wrap:wrap}
+.api-bar.open{display:flex}
 .api-label{color:var(--text-dim);white-space:nowrap}
 .api-input{background:var(--surface-raised);border:1px solid var(--border);border-radius:var(--radius);padding:5px 10px;color:var(--text-primary);font-size:12px;font-family:var(--font-mono);outline:none;width:340px}
 .api-input:focus{border-color:var(--steel)}
 .api-status{display:flex;align-items:center;gap:5px;font-size:11px}
-.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0}
 .dot-ok{background:var(--success)}
 .dot-err{background:var(--danger)}
 .dot-idle{background:var(--text-dim)}
+
+/* Cold-start / connectivity inline notice (health check + first analyze call) */
+.coldstart-msg{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:16px;font-size:13px;color:var(--text-secondary)}
+.coldstart-msg.err{color:var(--danger)}
+.coldstart-spinner{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--steel-bright);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+.coldstart-msg.err .coldstart-spinner{display:none}
 
 /* Buttons */
 .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all .15s;font-family:var(--font-body);white-space:nowrap}
@@ -238,6 +259,10 @@ tr:hover td{background:rgba(0,194,168,.04)}
          data-icon="octicon-star" data-show-count="true"
          aria-label="Star AutoShiftOps/spxray on GitHub">Star</a>
     </span>
+    <button class="gear-btn" id="apiToggleBtn" onclick="toggleApiBar()"
+            aria-expanded="false" aria-controls="apiBar" title="API settings" aria-label="API settings">
+      <span class="dot dot-idle" id="headerDot"></span>⚙
+    </button>
     <div class="header-actions" id="headerActions" style="display:none">
       <button class="btn btn-ghost" onclick="resetTool()">↩ New Analysis</button>
       <button class="btn btn-primary" onclick="downloadExcel()">⬇ Download Excel</button>
@@ -245,8 +270,9 @@ tr:hover td{background:rgba(0,194,168,.04)}
   </div>
 </header>
 
-<!-- API config bar -->
-<div class="api-bar">
+<!-- API config bar — hidden by default behind the ⚙ toggle in the header;
+     only a small status dot on the toggle itself is visible up front. -->
+<div class="api-bar" id="apiBar">
   <span class="api-label">API Endpoint:</span>
   <input class="api-input" id="apiUrl" value="https://sql-sp-companion.onrender.com"
          placeholder="https://your-render-app.onrender.com"
@@ -298,6 +324,9 @@ tr:hover td{background:rgba(0,194,168,.04)}
   </div>
   <div class="progress-bar" id="progressBar">
     <div class="progress-fill" id="progressFill"></div>
+  </div>
+  <div class="coldstart-msg" id="coldStartMsg" style="display:none">
+    <span class="coldstart-spinner"></span><span id="coldStartMsgText"></span>
   </div>
 </div>
 
@@ -471,6 +500,17 @@ function apiBase() {
   return (document.getElementById('apiUrl').value || 'https://sql-sp-companion.onrender.com').replace(/\/$/, '');
 }
 
+// ── API bar toggle ─────────────────────────────────────────────
+// The full endpoint/status bar is debug UI for developers pointing at a
+// custom backend; a first-time visitor only needs the glanceable dot on the
+// ⚙ toggle. The bar itself (URL field + Check button) is one click away.
+function toggleApiBar() {
+  const bar = document.getElementById('apiBar');
+  const btn = document.getElementById('apiToggleBtn');
+  const open = bar.classList.toggle('open');
+  btn.setAttribute('aria-expanded', String(open));
+}
+
 // FastAPI's HTTPException detail comes in three shapes: a plain string, a
 // structured object like {error, message, limit, ...} (tier-limit / no_input
 // errors in main.py), or -- on a 422 -- an array of Pydantic validation errors
@@ -487,25 +527,29 @@ function apiErrorMessage(err, fallback) {
 }
 
 // ── Health check ───────────────────────────────────────────────
+function setStatusDots(cls) {
+  document.getElementById('apiDot').className    = 'dot ' + cls;
+  document.getElementById('headerDot').className = 'dot ' + cls;
+}
+
 async function checkApiHealth() {
-  const dot  = document.getElementById('apiDot');
   const text = document.getElementById('apiStatusText');
-  dot.className = 'dot dot-idle';
+  setStatusDots('dot-idle');
   text.style.color = 'var(--text-dim)';
   text.textContent = 'Checking…';
 
-  // Render free tier sleeps after ~15min idle; a cold start can take 30-60s.
+  // Render free tier sleeps after ~15min idle; a cold start can take 30-50s.
   // Without this notice, that first request just looks broken and visitors leave.
   const wakingTimer = setTimeout(() => {
-    text.textContent = 'Waking backend (~30-60s, free tier)…';
-  }, 3000);
+    text.textContent = "Waking up the free backend — first request can take 30-50 seconds, then it's instant.";
+  }, 2000);
 
   try {
     const r = await fetch(`${apiBase()}/health`, { signal: AbortSignal.timeout(60000) });
     clearTimeout(wakingTimer);
     if (r.ok) {
       const d = await r.json();
-      dot.className = 'dot dot-ok';
+      setStatusDots('dot-ok');
       text.style.color = 'var(--success)';
       text.textContent = `Connected${d.hf_configured ? ' · HF ✓' : ' · HF not configured'}`;
     } else {
@@ -513,9 +557,13 @@ async function checkApiHealth() {
     }
   } catch(e) {
     clearTimeout(wakingTimer);
-    dot.className = 'dot dot-err';
+    setStatusDots('dot-err');
     text.style.color = 'var(--danger)';
-    text.textContent = `Unreachable — ${e.message}`;
+    // A network-level failure (no response at all) reads as "can't reach it";
+    // an HTTP error status above means it responded, so keep that detail.
+    text.textContent = (e.name === 'TypeError' || e.name === 'TimeoutError' || e.name === 'AbortError')
+      ? "Can't reach backend — check your connection or the API endpoint."
+      : `Unreachable — ${e.message}`;
   }
 }
 
@@ -536,6 +584,17 @@ function renderFileList() {
 }
 
 function removeFile(i) { uploadedFiles.splice(i,1); renderFileList(); }
+
+// ── Cold-start / connectivity notice (shared by health check & analyze) ──
+function showColdStart(msg, isError) {
+  const el = document.getElementById('coldStartMsg');
+  document.getElementById('coldStartMsgText').textContent = msg;
+  el.classList.toggle('err', !!isError);
+  el.style.display = 'flex';
+}
+function hideColdStart() {
+  document.getElementById('coldStartMsg').style.display = 'none';
+}
 
 const dz = document.getElementById('dropzone');
 dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.classList.add('drag-over'); });
@@ -577,6 +636,7 @@ async function analyze() {
   if (inputMode === 'upload' && !uploadedFiles.length) return;
   if (inputMode === 'paste' && !pastedSql) return;
   hideError();
+  hideColdStart();
 
   const pb = document.getElementById('progressBar');
   const pf = document.getElementById('progressFill');
@@ -586,9 +646,15 @@ async function analyze() {
   const fd = new FormData();
   fd.append('payload_b64', JSON.stringify(await buildPayloadEntries()));
 
+  // The free Render backend sleeps after ~15min idle; a cold first request
+  // can take 30-50s. Without this, that wait just looks like a hang.
+  const coldTimer = setTimeout(() => {
+    showColdStart("Waking up the free backend — first request can take 30-50 seconds, then it's instant.");
+  }, 2000);
+
   try {
     pf.style.width = '60%';
-    const r = await fetch(`${apiBase()}/analyze`, { method: 'POST', body: fd });
+    const r = await fetch(`${apiBase()}/analyze`, { method: 'POST', body: fd, signal: AbortSignal.timeout(90000) });
 
     if (!r.ok) {
       const err = await r.json().catch(()=>({detail: r.statusText}));
@@ -603,6 +669,8 @@ async function analyze() {
     showError(`API Error: ${e.message}. Make sure the backend is running at ${apiBase()}`);
     pf.style.width = '0%';
   } finally {
+    clearTimeout(coldTimer);
+    hideColdStart();
     pb.style.display = 'none';
   }
 }
@@ -1226,6 +1294,7 @@ function resetTool() {
   renderFileList();
   setInputMode('upload');
   hideError();
+  hideColdStart();
 }
 
 // ── Error / Toast ──────────────────────────────────────────────
