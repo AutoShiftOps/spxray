@@ -64,6 +64,7 @@ body{background:var(--navy);color:var(--text-primary);font-family:var(--font-bod
 .gh-star-wrap{display:flex;align-items:center;height:20px}
 .gear-btn{display:flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--border);color:var(--text-secondary);border-radius:var(--radius);padding:6px 9px;font-size:14px;cursor:pointer;line-height:1}
 .gear-btn:hover{color:var(--text-primary);border-color:var(--border-light);background:var(--surface-raised)}
+.gear-btn:focus-visible,.btn:focus-visible,.tab-btn:focus-visible,th:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,.schema-table-name:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* API config bar — collapsed by default; the gear toggle in the header reveals it */
 .api-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 24px;display:none;align-items:center;gap:12px;font-size:12px;flex-wrap:wrap}
@@ -235,6 +236,30 @@ tr:hover td{background:rgba(0,194,168,.04)}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* Mobile (~375px) */
+@media (max-width: 480px) {
+  .header{flex-wrap:wrap;height:auto;min-height:56px;padding:10px 14px;row-gap:8px}
+  .header-right{flex-wrap:wrap;row-gap:8px}
+  .brand-sub{display:none}
+  .api-bar{padding:8px 14px}
+  .api-input{width:100%;flex:1 1 100%}
+  .upload-zone{margin-top:32px;padding:0 14px 40px}
+  .upload-hero{font-size:20px}
+  .input-mode-toggle{flex-wrap:wrap}
+  .results-header{padding:12px 14px}
+  .results-meta{gap:12px}
+  .meta-stat .num{font-size:18px}
+  .tabs-bar{padding:0 14px}
+  .tab-panel{padding:16px 14px}
+  .summary-grid{grid-template-columns:1fr}
+  .schema-grid{grid-template-columns:1fr}
+  .schema-table-name{gap:6px}
+  .filter-bar{flex-direction:column;align-items:stretch}
+  .search-input,.filter-select{width:100%}
+  .results-count{margin-left:0}
+  .error-banner{margin:16px 14px}
+}
 </style>
 </head>
 <body>
@@ -802,15 +827,18 @@ function opBadges(ops) {
   return ops.split(', ').map(op=>`<span class="op-badge op-${op.trim()}">${op.trim()}</span>`).join(' ');
 }
 
+const EMPTY_TABLES_MSG = 'No physical tables found — this file may only contain temp tables/CTEs, which are excluded by design.';
+
 function renderTablesTab(data) {
-  document.getElementById('tablesBody').innerHTML = data.tables.map(t=>`
+  document.getElementById('tablesBody').innerHTML = data.tables.length ? data.tables.map(t=>`
     <tr data-schema="${t.schema}" data-ops="${t.ops}">
       <td><span style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary)">${t.proc}</span></td>
       <td><span class="schema-chip">${t.schema}</span></td>
       <td><strong>${t.table}</strong></td>
       <td>${opBadges(t.ops)}</td>
       <td style="color:var(--text-dim);font-size:12px">${t.aliases}</td>
-    </tr>`).join('');
+    </tr>`).join('')
+    : `<tr><td colspan="5" style="text-align:center;color:var(--text-dim);font-style:italic;padding:24px 14px">${EMPTY_TABLES_MSG}</td></tr>`;
   document.getElementById('tablesCount').textContent = `${data.tables.length} rows`;
 }
 
@@ -829,8 +857,14 @@ function renderColumnsTab(data) {
 }
 
 function renderSchemaTab(data) {
+  const entries = Object.entries(data.schema_map);
+  if (!entries.length) {
+    document.getElementById('schemaGrid').innerHTML =
+      `<div style="grid-column:1/-1;text-align:center;color:var(--text-dim);font-style:italic;padding:40px 24px">${EMPTY_TABLES_MSG}</div>`;
+    return;
+  }
   document.getElementById('schemaGrid').innerHTML =
-    Object.entries(data.schema_map).sort(([a],[b])=>a.localeCompare(b)).map(([schema, tables])=>`
+    entries.sort(([a],[b])=>a.localeCompare(b)).map(([schema, tables])=>`
       <div class="schema-card" data-schema="${schema}">
         <div class="schema-card-header">
           <span class="schema-name">${schema}</span>
@@ -838,7 +872,8 @@ function renderSchemaTab(data) {
         </div>
         ${Object.entries(tables).sort(([a],[b])=>a.localeCompare(b)).map(([tname,tinfo])=>`
           <div class="schema-table-row">
-            <div class="schema-table-name" onclick="toggleCols(this)">
+            <div class="schema-table-name" onclick="toggleCols(this)" tabindex="0" role="button"
+                 aria-expanded="false" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleCols(this);}">
               <span>${tname}</span>
               <span class="schema-table-ops">
                 ${opBadges(tinfo.ops)}
@@ -855,7 +890,9 @@ function renderSchemaTab(data) {
 
 function toggleCols(el) {
   const d = el.nextElementSibling;
-  d.style.display = d.style.display==='none' ? 'flex' : 'none';
+  const nowOpen = d.style.display === 'none';
+  d.style.display = nowOpen ? 'flex' : 'none';
+  el.setAttribute('aria-expanded', String(nowOpen));
 }
 
 // ── AI Insights ────────────────────────────────────────────────
