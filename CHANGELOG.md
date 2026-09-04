@@ -3,9 +3,14 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · [SemVer](https://semver.org/).
 
-## [1.0.0] — Unreleased
+## [1.1.0] — 2026-09-04
 
-First public release.
+Note: an earlier `v1.0.0` tag/release ("First release cycle pre-enterprise",
+2026-07-21) already exists on an older commit predating everything below —
+this section was originally drafted as "1.0.0 — Unreleased" before that
+collision was found, hence the version bump rather than a rename of history
+already public. Feature-complete UI/UX pass and parser-contract fixes
+building on that initial publish.
 
 ### Added
 - Deterministic SQL parser: physical tables, columns, CRUD ops, aliases per stored procedure
