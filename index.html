@@ -309,7 +309,8 @@ tr:hover td{background:rgba(0,194,168,.04)}
   <div id="pasteMode" style="display:none">
     <textarea class="paste-textarea" id="pasteTextarea" rows="15"
       placeholder="Paste your stored procedure SQL here…"
-      oninput="document.getElementById('analyzeBtn').disabled = !document.getElementById('pasteTextarea').value.trim()"></textarea>
+      oninput="handlePasteInput()"></textarea>
+    <div id="pasteSizeWarning" style="display:none;margin-top:8px;font-size:12px;color:var(--danger);text-align:left"></div>
   </div>
 
   <div class="analyze-row">
@@ -526,6 +527,31 @@ function apiErrorMessage(err, fallback) {
   return fallback;
 }
 
+// Wraps apiErrorMessage's result in a real Error tagged isApiError, so
+// friendlyErrorMessage's catch-all can tell "backend responded with a real
+// message" apart from "the fetch itself never reached the backend".
+function apiError(err, fallback) {
+  const e = new Error(apiErrorMessage(err, fallback));
+  e.isApiError = true;
+  return e;
+}
+
+// A caught error can be: our own thrown Error carrying an already-human
+// backend message (isApiError=true, from apiError), a network-level failure
+// (fetch's TypeError, or a timeout AbortError/TimeoutError — the backend
+// never actually responded), or something unexpected. Never surface
+// "[object Object]" or a raw exception string — always resolve to plain
+// English, with a distinct message for "can't reach it at all" vs. "it
+// responded with an error".
+function friendlyErrorMessage(e, fallback) {
+  if (e && e.isApiError && e.message) return e.message;
+  if (e && (e.name === 'TypeError' || e.name === 'AbortError' || e.name === 'TimeoutError')) {
+    return "Can't reach the backend — check your connection or the API endpoint and try again.";
+  }
+  if (e && typeof e.message === 'string' && e.message && e.message !== '[object Object]') return e.message;
+  return fallback;
+}
+
 // ── Health check ───────────────────────────────────────────────
 function setStatusDots(cls) {
   document.getElementById('apiDot').className    = 'dot ' + cls;
@@ -584,6 +610,31 @@ function renderFileList() {
 }
 
 function removeFile(i) { uploadedFiles.splice(i,1); renderFileList(); }
+
+// ── Paste size guard ───────────────────────────────────────────
+// Mirrors limits.py's FREE.max_total_bytes (5 MB) so an over-limit paste is
+// caught here, before Analyze is even clickable, instead of surfacing as a
+// raw server-side rejection. Kept in sync manually — see limits.py if that
+// constant ever changes.
+const FREE_TIER_MAX_TOTAL_BYTES = 5 * 1024 * 1024;
+
+function handlePasteInput() {
+  const text = document.getElementById('pasteTextarea').value;
+  const warning = document.getElementById('pasteSizeWarning');
+  const analyzeBtn = document.getElementById('analyzeBtn');
+  const byteLen = new TextEncoder().encode(text).length;
+
+  if (byteLen > FREE_TIER_MAX_TOTAL_BYTES) {
+    const mb = (byteLen / 1024 / 1024).toFixed(1);
+    const limitMb = FREE_TIER_MAX_TOTAL_BYTES / 1024 / 1024;
+    warning.textContent = `This exceeds the free tier limit of ${limitMb} MB (pasted text is ${mb} MB). Trim it or split it across smaller requests.`;
+    warning.style.display = 'block';
+    analyzeBtn.disabled = true;
+  } else {
+    warning.style.display = 'none';
+    analyzeBtn.disabled = !text.trim();
+  }
+}
 
 // ── Cold-start / connectivity notice (shared by health check & analyze) ──
 function showColdStart(msg, isError) {
@@ -658,7 +709,7 @@ async function analyze() {
 
     if (!r.ok) {
       const err = await r.json().catch(()=>({detail: r.statusText}));
-      throw new Error(apiErrorMessage(err, r.statusText));
+      throw apiError(err, r.statusText);
     }
 
     pf.style.width = '100%';
@@ -666,7 +717,11 @@ async function analyze() {
     renderResults(analysisResult);
     showToast('✅', `Analysis complete — ${analysisResult.stats.total_tables} tables found`);
   } catch(e) {
-    showError(`API Error: ${e.message}. Make sure the backend is running at ${apiBase()}`);
+    if (e.isApiError) {
+      showError(`API Error: ${e.message}. Make sure the backend is running at ${apiBase()}`);
+    } else {
+      showError(friendlyErrorMessage(e, 'Something went wrong — check the API endpoint is reachable and try again.'));
+    }
     pf.style.width = '0%';
   } finally {
     clearTimeout(coldTimer);
@@ -856,12 +911,13 @@ async function getAiInsights() {
     const r = await fetch(`${apiBase()}/ai-insights`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(90000)
     });
 
     if (!r.ok) {
       const err = await r.json().catch(()=>({detail: r.statusText}));
-      throw new Error(apiErrorMessage(err, r.statusText));
+      throw apiError(err, r.statusText);
     }
 
     const d = await r.json();
@@ -870,7 +926,7 @@ async function getAiInsights() {
     showToast('✨', 'AI insights generated');
   } catch(e) {
     errDiv.style.display = 'flex';
-    errMsg.textContent   = e.message;
+    errMsg.textContent   = friendlyErrorMessage(e, 'Something went wrong generating AI insights — check the API endpoint is reachable and try again.');
   } finally {
     loading.style.display = 'none';
   }
@@ -1291,6 +1347,7 @@ function resetTool() {
   document.getElementById('aiText').textContent = '';
   document.getElementById('fileInput').value = '';
   document.getElementById('pasteTextarea').value = '';
+  document.getElementById('pasteSizeWarning').style.display = 'none';
   renderFileList();
   setInputMode('upload');
   hideError();
