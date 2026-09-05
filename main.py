@@ -15,7 +15,7 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -639,6 +639,15 @@ def health():
         "tier": tier.name,
         "limits": tier.as_dict(),
     }
+
+
+# FastAPI's APIRoute (unlike raw Starlette's Route) does not auto-register
+# HEAD for a @app.get route, so uptime monitors that HEAD-probe (e.g.
+# UptimeRobot's free tier) get a 405. A dedicated HEAD handler returning an
+# empty body is the correct HTTP semantic anyway -- HEAD must never have one.
+@app.head("/health")
+def health_head():
+    return Response(status_code=200)
 
 
 @app.post("/analyze")
