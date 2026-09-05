@@ -3,6 +3,50 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+Working through the open GitHub issue backlog after v1.1.0.
+
+### Fixed
+- **#11 — KL-2:** bracketed and plain table names now share one casing
+  convention (uppercase); bracket display-case is no longer restored onto
+  `schema`/`base` (columns are unaffected — their multi-word display
+  preservation is intentional)
+- **#15 — KL-6:** a column referenced through a CTE alias is no longer
+  attributed to the CTE's source table unless the CTE actually outputs a
+  column by that name (new per-CTE allow-list, `SELECT *` CTEs left
+  unenforced since their real columns are unknowable statically)
+- **#16, #17 — KL-7/KL-7b:** a physical table sharing a bare name with a CTE
+  (e.g. `dbo.Country` next to `WITH Country AS (...)`) is no longer dropped
+  from the report — the exclusion check now only applies to unqualified
+  (bare) CTE references, never a schema-qualified real table
+- **#24:** corrected the C2 contract test in `test_contracts.py`, which had
+  encoded the KL-7/KL-7b bug itself ("no table's bare name may ever equal a
+  CTE name") as a passing assertion. Narrowed to the real invariant: an
+  unqualified CTE-name reference is never reported as a table
+- `test_KL3`'s fixture rewritten to remove an accidental confound (it named
+  its own CTE `Country` while also directly joining a real `dbo.Country`,
+  which the KL-7 fix incidentally "resolved" for the wrong reason); the real
+  multi-hop gap it's meant to test is confirmed still open
+
+### Added
+- Issue #23: on-page result tables (Physical Tables/Columns Detail/Schema
+  Breakdown) now match the Excel export's operation-color palette exactly
+  (three of six colors were previously only approximated) and carry
+  accent-styled headers and stronger row striping
+- Issue #20: a coarse "coverage" score — % of procedures fully understood
+  (not dynamic SQL, every table resolved at least one column) vs. needing
+  manual review, with a plain-English reason per flagged procedure. Built
+  entirely from data already tracked (`is_dynamic`, per-table column
+  resolution); no new parser instrumentation. Surfaced as a new `coverage`
+  field on `/analyze`, a Summary-tab card + per-procedure badges, and a
+  banner row + "Needs Review" column in the Excel Summary sheet
+
+### Closed without code
+- **#4** — closed; substantially served by the existing Excel export + AI
+  Insights narrative rather than a third documentation format
+- **#19** — a contribution template, not a feature; nothing to implement
+
 ## [1.1.0] — 2026-09-04
 
 Note: an earlier `v1.0.0` tag/release ("First release cycle pre-enterprise",

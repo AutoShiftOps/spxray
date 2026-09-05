@@ -51,7 +51,7 @@ def test_analyze_returns_full_contract(client):
     r = client.post("/analyze", files=[upload("multi_cte_report.sql")])
     assert r.status_code == 200, r.text
     d = r.json()
-    for field in ("status", "meta", "procedures", "tables", "columns", "schema_map", "stats"):
+    for field in ("status", "meta", "procedures", "tables", "columns", "schema_map", "coverage", "stats"):
         assert field in d, f"/analyze missing {field}"
     assert d["status"] == "success"
 
@@ -139,6 +139,36 @@ def test_analyze_flags_dynamic_sql_in_response(client):
     d = client.post("/analyze", files=[upload("crud_and_dynamic.sql")]).json()
     assert d["stats"]["dynamic_sql_count"] >= 1
     assert any(p["is_dynamic"] for p in d["procedures"])
+
+
+# ── Coverage (#20) ────────────────────────────────────────────────────────────
+
+def test_coverage_shape(client):
+    d = client.post("/analyze", files=[upload("multi_cte_report.sql")]).json()
+    cov = d["coverage"]
+    for field in ("percent", "fully_understood", "total_procedures", "needs_review"):
+        assert field in cov, f"coverage missing {field}"
+    assert 0 <= cov["percent"] <= 100
+    assert cov["total_procedures"] == len(d["procedures"])
+
+
+def test_coverage_flags_dynamic_sql_with_a_plain_english_reason(client):
+    """crud_and_dynamic.sql has one procedure that calls sp_executesql."""
+    d = client.post("/analyze", files=[upload("crud_and_dynamic.sql")]).json()
+    cov = d["coverage"]
+    dynamic_entries = [r for r in cov["needs_review"] if any("dynamic" in reason for reason in r["reasons"])]
+    assert dynamic_entries, "a dynamic-SQL procedure should show up in needs_review"
+    assert cov["fully_understood"] < cov["total_procedures"]
+    assert cov["percent"] < 100
+
+
+def test_coverage_is_100_when_nothing_needs_review(client):
+    """A fully-resolved, non-dynamic file should report full coverage."""
+    d = client.post("/analyze", files=[upload("alias_collision.sql")]).json()
+    cov = d["coverage"]
+    if cov["needs_review"] == []:
+        assert cov["percent"] == 100
+        assert cov["fully_understood"] == cov["total_procedures"]
 
 
 def test_analyze_multiple_files(client):

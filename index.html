@@ -787,9 +787,28 @@ function renderResults(data) {
   renderSchemaTab(data);
 }
 
+// Coverage (#20): a coarse, honest "how much of this can you trust" signal.
+// Built entirely from what the backend already tracks (is_dynamic,
+// tables_with_no_columns) -- see the `coverage` block on the /analyze
+// response. Older backends won't send it; render nothing rather than crash.
+function coverageColor(pct) {
+  if (pct >= 90) return 'var(--success)';
+  if (pct >= 60) return 'var(--warn)';
+  return 'var(--danger)';
+}
+
 function renderSummary(data) {
   const dynProcs = data.procedures.filter(p=>p.is_dynamic);
+  const cov = data.coverage;
+  const reviewByProc = new Map((cov?.needs_review || []).map(r => [`${r.proc} ${r.file}`, r.reasons]));
+
   document.getElementById('summaryCards').innerHTML = `
+    ${cov ? `
+    <div class="summary-card">
+      <div class="summary-card-label">Coverage</div>
+      <div class="summary-card-value" style="color:${coverageColor(cov.percent)}">${cov.percent}%</div>
+      <div class="summary-card-sub">${cov.fully_understood} of ${cov.total_procedures} procedure(s) fully understood</div>
+    </div>` : ''}
     <div class="summary-card">
       <div class="summary-card-label">Stored Procedures</div>
       <div class="summary-card-value">${data.stats.total_procedures}</div>
@@ -813,17 +832,23 @@ function renderSummary(data) {
 
   document.getElementById('procList').innerHTML =
     `<div style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Procedure Breakdown</div>` +
-    data.procedures.map(p=>`
+    data.procedures.map(p=>{
+      const reasons = reviewByProc.get(`${p.name} ${p.file}`) || [];
+      // Dynamic SQL already gets its own badge below -- don't repeat that reason.
+      const extraReasons = reasons.filter(r => !r.includes('dynamic SQL'));
+      return `
       <div class="proc-item">
         <div>
           <div class="proc-name">${p.name}</div>
           <div class="proc-meta">${p.file} · ${p.dialect}</div>
         </div>
-        <div style="display:flex;align-items:center;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
           <span style="font-size:12px;color:var(--text-secondary)">${p.table_count} tables · ${p.col_count} cols</span>
           ${p.is_dynamic?'<span class="warn-badge">⚠ Dynamic SQL</span>':''}
+          ${extraReasons.map(r=>`<span class="warn-badge" title="${r}">⚠ Needs review</span>`).join('')}
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 }
 
 function opBadges(ops) {
@@ -1106,7 +1131,7 @@ const COLUMN_MIN_WIDTHS = {
   '#':6, 'Procedure':32, 'File':20, 'Source File':20, 'Dialect':18,
   'Tables':12, 'Columns':12, 'Dynamic SQL?':14,
   'Schema':16, 'Table Name':28, 'Operations':24, 'Aliases':18,
-  'Column Name':24, 'Procedures':32,
+  'Column Name':24, 'Procedures':32, 'Needs Review':30,
 };
 
 function autoFitColumns(ws, headerRowNum) {
@@ -1156,19 +1181,29 @@ async function downloadExcel() {
   const sumWs = wb.addWorksheet('Summary');
   sumWs.addRow(['SPXray — Analysis Report']);
   sumWs.addRow([`Generated: ${new Date().toLocaleString()}`]);
+  const cov = d.coverage;
+  if (cov) {
+    const covRow = sumWs.addRow([
+      `Coverage: ${cov.percent}% fully understood (${cov.fully_understood} of ${cov.total_procedures} procedure(s)) — see "Needs Review" below for what to check manually`
+    ]);
+    sumWs.mergeCells(covRow.number, 1, covRow.number, 8);
+    const covColor = cov.percent >= 90 ? 'FF375623' : cov.percent >= 60 ? 'FF7F6000' : 'FFC00000';
+    covRow.getCell(1).font = { name:BODY_FONT, size:10, bold:true, color:{argb:covColor} };
+  }
   sumWs.addRow([]);
-  const sumHeader = sumWs.addRow(['#','Procedure','File','Dialect','Tables','Columns','Dynamic SQL?']);
+  const sumHeader = sumWs.addRow(['#','Procedure','File','Dialect','Tables','Columns','Dynamic SQL?','Needs Review']);
   d.procedures.forEach((p,i)=>{
-    sumWs.addRow([i+1,p.name,p.file,p.dialect,p.table_count,p.col_count,p.is_dynamic?'⚠ YES':'No']);
+    const entry = cov?.needs_review.find(r => r.proc === p.name && r.file === p.file);
+    sumWs.addRow([i+1,p.name,p.file,p.dialect,p.table_count,p.col_count,p.is_dynamic?'⚠ YES':'No', entry ? entry.reasons.join('; ') : '']);
   });
-  sumWs.mergeCells(1,1,1,7);
+  sumWs.mergeCells(1,1,1,8);
   sumWs.getCell(1,1).font = { name:BODY_FONT, bold:true, size:14, color:{argb:WHITE} };
   sumWs.getCell(1,1).fill = { type:'pattern', pattern:'solid', fgColor:{argb:NAVY} };
   sumWs.getRow(1).height = 22;
-  sumWs.mergeCells(2,1,2,7);
+  sumWs.mergeCells(2,1,2,8);
   sumWs.getCell(2,1).font = { name:BODY_FONT, size:9, color:{argb:MUTED_GRAY} };
   styleHeaderRow(sumHeader);
-  styleDataRows(sumWs, sumHeader.number+1, sumWs.rowCount, 7, null);
+  styleDataRows(sumWs, sumHeader.number+1, sumWs.rowCount, 8, null);
   sumWs.views = [{ state:'frozen', ySplit: sumHeader.number }];
   autoFitColumns(sumWs, sumHeader.number);
 

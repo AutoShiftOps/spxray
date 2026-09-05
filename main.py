@@ -791,6 +791,10 @@ async def analyze(
                 "is_dynamic": is_dynamic,
                 "table_count": len(phys_only),
                 "col_count":   sum(len(v['columns']) for v in phys_only.values()),
+                # Coverage (#20): count of this procedure's own tables that
+                # resolved zero columns -- purely a re-count of data already
+                # computed above (phys_only), not new parser instrumentation.
+                "tables_with_no_columns": sum(1 for v in phys_only.values() if not v['columns']),
             }
             all_procedures.append(proc_entry)
 
@@ -858,6 +862,29 @@ async def analyze(
             "tier": tier.name,
         })
 
+    # Coverage (#20): a coarse, honest signal of how much of the report is
+    # fully resolved vs. needs manual review -- built entirely from data
+    # already computed above (is_dynamic, tables_with_no_columns), not new
+    # parser instrumentation. A procedure counts as "fully understood" only
+    # if it's not dynamic SQL AND every one of its tables resolved at least
+    # one column; otherwise it's flagged with a plain-English reason.
+    needs_review = []
+    fully_understood_count = 0
+    for p in all_procedures:
+        reasons = []
+        if p["is_dynamic"]:
+            reasons.append("dynamic SQL (table names are runtime strings)")
+        if p["tables_with_no_columns"]:
+            n = p["tables_with_no_columns"]
+            reasons.append(f"{n} table{'s' if n != 1 else ''} with no columns resolved")
+        if reasons:
+            needs_review.append({"proc": p["name"], "file": p["file"], "reasons": reasons})
+        else:
+            fully_understood_count += 1
+    coverage_percent = (
+        round(100 * fully_understood_count / len(all_procedures)) if all_procedures else 100
+    )
+
     from datetime import datetime, timezone
     return {
         "status":     "success",
@@ -872,6 +899,12 @@ async def analyze(
         "tables":     all_tables,
         "columns":    all_columns,
         "schema_map": schema_map,
+        "coverage": {
+            "percent":          coverage_percent,
+            "fully_understood": fully_understood_count,
+            "total_procedures": len(all_procedures),
+            "needs_review":     needs_review,
+        },
         "stats": {
             "total_procedures": len(all_procedures),
             "total_tables":     len(set(f"{t['schema']}.{t['table']}" for t in all_tables)),
