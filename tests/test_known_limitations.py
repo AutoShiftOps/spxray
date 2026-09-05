@@ -26,16 +26,46 @@ from conftest import cols_of, tables_of
 @pytest.mark.xfail(strict=True, reason="KL-3: multi-hop CTE chains do not fully resolve")
 def test_KL3_multi_hop_cte_chain_resolves():
     """
-    Country CTE sources FROM PartyRef (another CTE) which sources FROM dbo.PartyCompany.
-    Columns referenced via the Country alias should reach dbo.PartyCompany.
+    CountryInfo CTE sources FROM PartyRef (another CTE) which sources FROM
+    dbo.PartyCompany. A column referenced via the CountryInfo alias, renamed
+    at every hop, should ultimately trace back to dbo.PartyCompany's real
+    column -- it doesn't; it's silently dropped instead.
+
+    Rewritten while fixing #16/#17 (KL-7/KL-7b): the original repro named its
+    own CTE "Country" while ALSO directly joining a real dbo.Country inside
+    that CTE's body. Fixing KL-7/KL-7b (which recovers dbo.Country from that
+    exact collision) made this test XPASS -- but only because the asserted
+    column landed on dbo.Country via that CTE-body's own local JOIN alias,
+    completely independent of any multi-hop chain logic. Confirmed by testing
+    a clean 2-hop chain with no local-JOIN shortcut: genuine multi-hop alias
+    resolution still doesn't work. This version has no name collision and no
+    local qualified/unqualified shortcut for the chased column -- the PartyRef
+    JOIN exists only to disable the single-table unqualified-column fallback,
+    which would otherwise mask the real gap the same way. The only column it
+    contributes (PARTYID, from the JOIN's own ON-clause) is deliberately
+    irrelevant to what's being chased.
+
+    Root cause (see main.py, the qualified-columns loop): when a CTE's output
+    alias is itself a passthrough of ANOTHER CTE (mapped_table is None), the
+    code resolves the target table via `cte_src[source_cte]` directly --
+    exactly one hop -- instead of `resolve_cte(source_cte, cte_src, cte_names)`,
+    which already recurses through multiple hops (and IS used elsewhere, e.g.
+    for a direct table alias like `FROM CountryInfo ctry`). That one-hop-only
+    lookup returns another CTE's bare name, which is never in `physical`, so
+    the reference is silently declined instead of chased further.
     """
     sql = """
-    ;WITH PartyRef AS (SELECT PartyId, CountryOfIncorporationId FROM dbo.PartyCompany),
-    Country AS (SELECT c.Id, c.ShortName FROM PartyRef INNER JOIN dbo.Country c ON c.id = PartyRef.CountryOfIncorporationId)
-    SELECT ctry.ShortName FROM Country ctry
+    ;WITH PartyRef AS (
+        SELECT CountryOfIncorporationId AS Hop1Col
+        FROM dbo.PartyCompany pc
+        JOIN dbo.PartyStatus ps ON ps.PartyId = pc.PartyId
+    ),
+    CountryInfo AS (SELECT Hop1Col AS Hop2Col FROM PartyRef)
+    SELECT ctry.Hop2Col FROM CountryInfo ctry
     """
     physical, _ = parse_sp(sql)
-    assert "SHORTNAME" in cols_of(physical, "DBO.COUNTRY")
+    assert "COUNTRYOFINCORPORATIONID" in cols_of(physical, "DBO.PARTYCOMPANY"), \
+        "ctry.Hop2Col should chain through CountryInfo -> PartyRef to dbo.PartyCompany"
 
 
 @pytest.mark.xfail(strict=True, reason="KL-4: dynamic SQL table names are unknowable statically")
@@ -78,60 +108,6 @@ def test_KL5_expression_derived_cte_output_not_resolved():
         "must never invent a physical column from an expression alias"
     assert "AMOUNT" in cols, \
         "the real operand column referenced inside SUM() should be surfaced too"
-
-
-@pytest.mark.xfail(strict=True, reason="KL-7: a physical table is dropped entirely when its base name collides with a same-named CTE")
-def test_KL7_physical_table_dropped_when_name_collides_with_cte():
-    """
-    `WITH Country AS (SELECT c.Id FROM dbo.Country c) SELECT * FROM Country`
-    -- dbo.Country vanishes from the report completely. The table-registration
-    exclusion check in parse_sp (main.py) is:
-
-        if (base in SKIP_WORDS or base in cte_names or full in cte_names ...)
-
-    It exists to satisfy C2 (a CTE's own name must never be reported as if it
-    were a physical table). But it compares by BARE base name only, so a CTE
-    named "Country" makes `base in cte_names` true for EVERY table literally
-    named Country too, in ANY schema -- dbo.Country, sales.Country, etc. all
-    get excluded, not just the CTE itself.
-
-    This is the most serious class of bug this tool can produce: KL-1/KL-6 are
-    wrong or missing COLUMNS, recoverable by re-reading the procedure. This is
-    a physical table a migration plan needs to know about not appearing in the
-    report AT ALL, with no flag, warning, or indication that anything was
-    dropped -- indistinguishable from "this procedure never touches Country".
-    First observed as a side effect while building the multi_cte_report.sql
-    fixture for the KL-1 fix; not something that fixture's own goldens can
-    catch since dbo.Country was never expected to appear there either.
-    """
-    sql = ";WITH Country AS (SELECT c.Id FROM dbo.Country c) SELECT * FROM Country"
-    physical, _ = parse_sp(sql)
-    assert "DBO.COUNTRY" in tables_of(physical), \
-        "a same-named CTE caused the physical table to be dropped entirely"
-
-
-@pytest.mark.xfail(strict=True, reason="KL-7: confirmed to generalize -- an unrelated table sharing a CTE's name is dropped anywhere in the procedure, not just references reachable through the colliding CTE")
-def test_KL7b_collision_drops_unrelated_same_named_table_anywhere_in_procedure():
-    """
-    A CTE named "Product", built from an entirely different table
-    (dbo.CaseFile), coexists with a COMPLETELY SEPARATE statement that
-    directly queries the real dbo.Product -- never through the CTE at all.
-    dbo.Product still vanishes. Confirms KL-7's exclusion check
-    (`base in cte_names`) is a blunt, procedure-wide set-membership test with
-    no locality: it drops every table sharing that bare name anywhere in the
-    procedure, not just references reachable through the colliding CTE.
-
-    First observed via tests/fixtures/cte_table_collision_variant.sql.
-    """
-    sql = """
-    ;WITH Product AS (SELECT c.CaseId FROM dbo.CaseFile c)
-    SELECT p.CaseId FROM Product p;
-
-    SELECT sp.Id FROM dbo.Product sp;
-    """
-    physical, _ = parse_sp(sql)
-    assert "DBO.PRODUCT" in tables_of(physical), \
-        "an unrelated table was dropped just for sharing a name with a CTE"
 
 
 @pytest.mark.xfail(strict=True, reason="KL-15: a MERGE's USING (subquery) clause severs the header's target/src aliases from the ON/UPDATE SET/INSERT clauses that use them")

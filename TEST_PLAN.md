@@ -97,10 +97,9 @@ Nothing rots silently. The README limitations table must stay in sync with this 
 
 | ID | Defect | Fix path |
 |---|---|---|
-| **KL-3** | Multi-hop CTE chains don't fully resolve | Needs AST backend |
+| **KL-3** | Multi-hop CTE chains don't fully resolve when an output alias passes through another CTE rather than a physical table | Needs AST backend |
 | **KL-4** | Dynamic SQL tables not extracted | **Permanent by design** — XPASS here means someone added runtime execution, which is a security review |
 | **KL-5** | Expression-derived CTE output columns don't surface the real operand column | Needs expression parsing |
-| **KL-7** / **KL-7b** | A physical table is dropped entirely when its base name collides with a same-named CTE, anywhere in the procedure | **Most severe on this list** — a table silently missing, not a column |
 | **KL-15** | A MERGE's `USING (subquery) AS src` severs the header's `target`/`src` aliases from the `ON`/`UPDATE SET`/`INSERT` clauses that use them | Same symptom as fixed KL-9, different trigger; a fix was tried but traded away a different column, so it's pinned rather than forced |
 
 KL-1, KL-8, KL-9, KL-10, KL-11, KL-12, KL-13, KL-14 were fixed and promoted to

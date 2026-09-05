@@ -191,6 +191,60 @@ def test_cte_wildcard_select_star_does_not_enforce_output_allowlist():
     assert "ANYTHING" in cols_of(physical, "DBO.REAL")
 
 
+# ── Bug fix: CTE-name collision no longer drops the real table (formerly KL-7/KL-7b) ─
+
+def test_table_sharing_a_ctes_bare_name_is_not_dropped():
+    """
+    `WITH Country AS (SELECT c.Id FROM dbo.Country c) SELECT * FROM Country`
+    used to drop dbo.Country from the report entirely. The table-registration
+    exclusion check compared bare base names only (`base in cte_names`), so a
+    CTE named "Country" made that true for EVERY table literally named
+    Country, in any schema -- not just the CTE reference itself.
+
+    A CTE is always referenced bare in T-SQL (schema-qualifying a CTE isn't
+    valid syntax), so the fix narrows the check to unqualified references
+    only: `not schema and base in cte_names`. A schema-qualified real table
+    sharing a CTE's bare name is unambiguously a real table.
+
+    This was the most serious class of bug this tool could produce: a
+    physical table a migration plan needs to know about not appearing in the
+    report at all, indistinguishable from "this procedure never touches it".
+
+    Was tests/test_known_limitations.py::test_KL7 (xfail). Promoted here now
+    that main.py's table-registration exclusion check is unqualified-only.
+    See also #24 for the related C2 contract correction this required. If
+    this regresses, KL-7 is back and belongs in test_known_limitations.py
+    again, not here.
+    """
+    sql = ";WITH Country AS (SELECT c.Id FROM dbo.Country c) SELECT * FROM Country"
+    physical, _ = parse_sp(sql)
+    assert "DBO.COUNTRY" in tables_of(physical), \
+        "a same-named CTE caused the physical table to be dropped entirely"
+
+
+def test_collision_drop_does_not_generalize_to_unrelated_statements():
+    """
+    A CTE named "Product", built from an entirely different table
+    (dbo.CaseFile), coexists with a COMPLETELY SEPARATE statement that
+    directly queries the real dbo.Product -- never through the CTE at all.
+    dbo.Product used to vanish too: the old exclusion check was a blunt,
+    procedure-wide set-membership test with no locality, dropping every
+    table sharing that bare name anywhere in the procedure.
+
+    Was tests/test_known_limitations.py::test_KL7b (xfail); same fix as
+    KL-7 above. If this regresses, KL-7b is back in test_known_limitations.py.
+    """
+    sql = """
+    ;WITH Product AS (SELECT c.CaseId FROM dbo.CaseFile c)
+    SELECT p.CaseId FROM Product p;
+
+    SELECT sp.Id FROM dbo.Product sp;
+    """
+    physical, _ = parse_sp(sql)
+    assert "DBO.PRODUCT" in tables_of(physical), \
+        "an unrelated table was dropped just for sharing a name with a CTE"
+
+
 # ── Bug fix: CTE alias chain resolution ──────────────────────────────────────
 
 def test_cte_alias_resolves_to_physical_table():

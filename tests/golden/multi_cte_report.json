@@ -1,6 +1,19 @@
 {
   "dynamic_sql": false,
   "tables": {
+    "DBO.COUNTRY": {
+      "schema": "DBO",
+      "base": "COUNTRY",
+      "ops": [
+        "SELECT"
+      ],
+      "aliases": [],
+      "columns": [
+        "ID",
+        "NAME",
+        "SHORTNAME"
+      ]
+    },
     "DBO.PARTY": {
       "schema": "DBO",
       "base": "PARTY",

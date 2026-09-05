@@ -188,10 +188,9 @@ cannot silently rot.
 
 | ID | Limitation | Why |
 |---|---|---|
-| **KL-3** | Multi-hop CTE chains (CTE→CTE→table) resolve partially | Needs AST backend |
+| **KL-3** | Multi-hop CTE chains (CTE→CTE→table) resolve partially — specifically, when a CTE's output alias passes through *another* CTE (not a physical table) rather than being read directly | Needs AST backend |
 | **KL-4** | Dynamic SQL (`EXEC`, `sp_executesql`) tables not extracted | **Permanent by design.** Table names are runtime strings. Flagged ⚠, never guessed |
 | **KL-5** | Expression-derived CTE output columns (`SUM(Amount) AS 'Total'`) don't surface the real column read inside the expression | Never invents the alias as a column (correct) — but doesn't yet parse into simple aggregate expressions either. Needs expression parsing |
-| **KL-7** | ⚠️ A physical table is dropped from the report entirely when its base name collides with a same-named CTE (e.g. a CTE named `Country` hides `dbo.Country`) — confirmed to generalize: an unrelated table sharing that name is dropped anywhere in the procedure, not just inside the colliding CTE | The CTE-exclusion check compares bare base names only, across all schemas, with no locality. **Most severe limitation on this list** — a table silently missing, not a column |
 | **KL-15** | A MERGE's `USING (SELECT ...) AS src` derived table severs the header's `target`/`src` aliases from the later `ON`/`UPDATE SET`/`INSERT` clauses that use them — those qualified columns go unresolved | Same symptom as the fixed KL-9, different trigger (a subquery's own SELECT keyword splits the statement). A fix was prototyped but traded one resolved column for another (see the STMT_SPLIT comment in `main.py`), so it's pinned rather than forced |
 
 Nothing is silently dropped — everything the parser can't resolve is labeled as
@@ -261,7 +260,7 @@ Interactive docs at `/docs` (Swagger) when the backend is running.
 ## Testing
 
 ```bash
-pytest tests/ -v          # 101 passing, 6 tracked limitations
+pytest tests/ -v          # 103 passing, 4 tracked limitations
 ```
 
 Five layers, all CI-gated on every PR — see **[TEST_PLAN.md](TEST_PLAN.md)**:

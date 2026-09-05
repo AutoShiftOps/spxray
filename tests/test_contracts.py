@@ -72,13 +72,28 @@ def test_C2_temp_tables_never_reported():
         assert not t.lstrip("[").startswith("#"), f"temp table leaked: {t}"
 
 
-def test_C2_cte_names_never_reported_as_tables():
+def test_C2_unqualified_cte_reference_never_reported_as_a_table():
+    """
+    Corrected per #24 (was: "no table's bare base name may ever equal a CTE
+    name, anywhere" -- that's precisely the KL-7/KL-7b bug, not a contract).
+
+    A CTE is always referenced bare in T-SQL -- schema-qualifying a CTE
+    reference isn't valid syntax -- so the real invariant C2 must guarantee is
+    narrower: an UNQUALIFIED reference to a CTE name is never reported as a
+    table. A schema-qualified real table that happens to share a CTE's bare
+    name (e.g. dbo.Country next to `WITH Country AS (...)`) is unambiguously
+    a real table and must NOT be excluded just because of that collision.
+    """
     physical, _ = parse_sp(sql_fixture("multi_cte_report.sql"))
     cte_names = {"LEDETAILS", "LEI", "COUNTRY", "REGIONRISKDETAILS",
                  "GROUPRISKRATING", "PRODUCTS"}
     for t in tables_of(physical):
-        base = t.split(".")[-1]
-        assert base not in cte_names, f"CTE name leaked as table: {t}"
+        assert t not in cte_names, f"unqualified CTE reference leaked as its own table entry: {t}"
+    # The fixture's "Country" CTE directly joins the real dbo.Country inside
+    # its own body -- a schema-qualified reference sharing the CTE's bare
+    # name. It must still be reported, not dropped by the old bare-name check.
+    assert "DBO.COUNTRY" in tables_of(physical), \
+        "a real schema-qualified table sharing a CTE's bare name must not be dropped (KL-7/KL-7b)"
 
 
 def test_C2_variable_tables_never_reported():

@@ -526,7 +526,15 @@ def parse_sp(sql: str):
             for m in re.finditer(pat, stmt, re.IGNORECASE):
                 raw = m.group(1).strip()
                 schema, base, full = parse_table_ref(raw)
-                if (base in SKIP_WORDS or base in cte_names or full in cte_names
+                # KL-7/KL-7b: a CTE is always referenced bare (no schema --
+                # that's not valid T-SQL), so only an UNQUALIFIED reference
+                # whose bare name matches a CTE name is actually that CTE.
+                # `base in cte_names` alone compared bare names regardless of
+                # qualification, so a schema-qualified real table sharing a
+                # CTE's name (e.g. dbo.Country next to `WITH Country AS (...)`)
+                # was excluded right along with the CTE itself, anywhere in
+                # the procedure -- not just references reachable through it.
+                if (base in SKIP_WORDS or (not schema and base in cte_names) or full in cte_names
                         or base.startswith('#') or base.startswith('@') or len(base) < 2):
                     continue
                 register(full, schema, base, op)
