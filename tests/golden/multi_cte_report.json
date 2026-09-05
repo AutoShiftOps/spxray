@@ -2,7 +2,7 @@
   "dynamic_sql": false,
   "tables": {
     "DBO.PARTY": {
-      "schema": "dbo",
+      "schema": "DBO",
       "base": "PARTY",
       "ops": [
         "SELECT"
@@ -15,8 +15,8 @@
       ]
     },
     "DBO.PARTYASSOCIATION": {
-      "schema": "dbo",
-      "base": "PartyAssociation",
+      "schema": "DBO",
+      "base": "PARTYASSOCIATION",
       "ops": [
         "SELECT"
       ],
@@ -28,7 +28,7 @@
       ]
     },
     "DBO.PARTYCOMPANY": {
-      "schema": "dbo",
+      "schema": "DBO",
       "base": "PARTYCOMPANY",
       "ops": [
         "SELECT"
@@ -42,8 +42,8 @@
       ]
     },
     "REFDATA.LOOKUPPRODUCTTYPE": {
-      "schema": "refdata",
-      "base": "LookupProductType",
+      "schema": "REFDATA",
+      "base": "LOOKUPPRODUCTTYPE",
       "ops": [
         "SELECT"
       ],
@@ -56,8 +56,8 @@
       ]
     },
     "RISK.CASEDERIVEDRISK": {
-      "schema": "risk",
-      "base": "CaseDerivedRisk",
+      "schema": "RISK",
+      "base": "CASEDERIVEDRISK",
       "ops": [
         "SELECT"
       ],
@@ -68,7 +68,7 @@
       ]
     },
     "RISK.RATINGDETAILS": {
-      "schema": "risk",
+      "schema": "RISK",
       "base": "RATINGDETAILS",
       "ops": [
         "SELECT"
@@ -82,7 +82,7 @@
       ]
     },
     "RISK.RISKCATEGORY": {
-      "schema": "risk",
+      "schema": "RISK",
       "base": "RISKCATEGORY",
       "ops": [
         "SELECT"

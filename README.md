@@ -188,7 +188,6 @@ cannot silently rot.
 
 | ID | Limitation | Why |
 |---|---|---|
-| **KL-2** | Casing differs between `[Bracketed]` and plain identifiers | Cosmetic; v1.1 |
 | **KL-3** | Multi-hop CTE chains (CTE→CTE→table) resolve partially | Needs AST backend |
 | **KL-4** | Dynamic SQL (`EXEC`, `sp_executesql`) tables not extracted | **Permanent by design.** Table names are runtime strings. Flagged ⚠, never guessed |
 | **KL-5** | Expression-derived CTE output columns (`SUM(Amount) AS 'Total'`) don't surface the real column read inside the expression | Never invents the alias as a column (correct) — but doesn't yet parse into simple aggregate expressions either. Needs expression parsing |
@@ -263,7 +262,7 @@ Interactive docs at `/docs` (Swagger) when the backend is running.
 ## Testing
 
 ```bash
-pytest tests/ -v          # 98 passing, 8 tracked limitations
+pytest tests/ -v          # 99 passing, 7 tracked limitations
 ```
 
 Five layers, all CI-gated on every PR — see **[TEST_PLAN.md](TEST_PLAN.md)**:

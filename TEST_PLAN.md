@@ -97,7 +97,6 @@ Nothing rots silently. The README limitations table must stay in sync with this 
 
 | ID | Defect | Fix path |
 |---|---|---|
-| **KL-2** | Casing inconsistent between `[Bracketed]` and plain identifiers | Cosmetic, v1.1 |
 | **KL-3** | Multi-hop CTE chains don't fully resolve | Needs AST backend |
 | **KL-4** | Dynamic SQL tables not extracted | **Permanent by design** — XPASS here means someone added runtime execution, which is a security review |
 | **KL-5** | Expression-derived CTE output columns don't surface the real operand column | Needs expression parsing |

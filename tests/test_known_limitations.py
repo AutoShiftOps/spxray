@@ -23,19 +23,6 @@ from main import parse_sp
 from conftest import cols_of, tables_of
 
 
-@pytest.mark.xfail(strict=True, reason="KL-2: display casing is inconsistent between bracketed and plain identifiers")
-def test_KL2_identifier_casing_is_consistent():
-    """
-    `dbo.Alpha` renders as ALPHA, `[dbo].[Bravo]` renders as Bravo. Cosmetic,
-    but it looks sloppy in an enterprise report and makes Excel sorting odd.
-    """
-    sql = "SELECT a.Id FROM dbo.Alpha a INNER JOIN [dbo].[Bravo] b ON b.Id = a.Id"
-    physical, _ = parse_sp(sql)
-    bases = [v["base"] for v in physical.values()]
-    assert all(b.isupper() for b in bases) or all(not b.isupper() for b in bases), \
-        f"inconsistent casing: {bases}"
-
-
 @pytest.mark.xfail(strict=True, reason="KL-3: multi-hop CTE chains do not fully resolve")
 def test_KL3_multi_hop_cte_chain_resolves():
     """

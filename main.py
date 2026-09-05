@@ -613,8 +613,14 @@ def parse_sp(sql: str):
                 continue
             final.add(col)
         info['columns'] = final
-        info['schema']  = bmap.get(info['schema'], info['schema'])
-        info['base']    = bmap.get(info['base'],   info['base'])
+        # KL-2: schema/base are NOT restored to their bracketed display form
+        # (unlike columns, above) -- a bracketed table ref like [dbo].[Bravo]
+        # would otherwise keep its original mixed case while a plain dbo.Alpha
+        # ref stays uppercase from parse_table_ref, giving two casing
+        # conventions in the same report. Multi-word bracketed *columns* have
+        # a real reason to preserve display form (e.g. "Party ID"); a bracketed
+        # table/schema name doesn't carry that same meaningful formatting, so
+        # both paths now agree on the plain path's uppercase convention.
 
     return physical, is_dynamic
 

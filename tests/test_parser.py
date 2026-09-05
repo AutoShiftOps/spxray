@@ -394,6 +394,30 @@ def test_delete_where_unqualified_column_is_captured():
     assert cols_of(physical, "WAREHOUSE.STOCKTRANSFERS") == {"PRODUCTID", "LASTSYNCDATE"}
 
 
+# ── Bug fix: consistent table-name casing (formerly KL-2) ──────────────────────
+
+def test_bracketed_and_plain_table_names_share_one_casing_convention():
+    """
+    `dbo.Alpha` (plain) and `[dbo].[Bravo]` (bracketed) used to render with two
+    different casing conventions in the same report -- ALPHA (plain path
+    uppercases) vs Bravo (bracket path restored original display casing, same
+    as it does for genuinely multi-word bracketed columns like "Party ID").
+    A table/schema name has no meaningful multi-word display form to preserve
+    the way a column alias does, so both paths now agree on uppercase.
+
+    Was tests/test_known_limitations.py::test_KL2 (xfail). Promoted here now
+    that parse_sp (main.py) no longer restores bracket display casing onto
+    physical['schema']/['base']. If this regresses, KL-2 is back and belongs
+    in test_known_limitations.py again, not here.
+    """
+    sql = "SELECT a.Id FROM dbo.Alpha a INNER JOIN [dbo].[Bravo] b ON b.Id = a.Id"
+    physical, _ = parse_sp(sql)
+    bases = [v["base"] for v in physical.values()]
+    assert bases, "expected at least one physical table"
+    assert all(b.isupper() for b in bases), f"inconsistent casing: {bases}"
+    assert tables_of(physical) == {"DBO.ALPHA", "DBO.BRAVO"}
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))
