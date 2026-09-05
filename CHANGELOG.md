@@ -47,6 +47,11 @@ Working through the open GitHub issue backlog after v1.1.0.
   which codec succeeded (`_decode_bytes_with_encoding`); its own str-only
   contract is unchanged. New `meta.file_details` on `/analyze`; the frontend
   assembles and downloads the JSON client-side, no new endpoint
+- Issue #22: new `tests/test_metamorphic.py`, a deliberate named layer
+  (Layer 6) for "two inputs that should mean the same thing must produce the
+  same output" — the four properties named in the issue (alias rename,
+  reformatting/keyword-casing, string-literal decoys, statement reordering),
+  8 tests total
 
 ### Closed without code
 - **#4** — closed; substantially served by the existing Excel export + AI

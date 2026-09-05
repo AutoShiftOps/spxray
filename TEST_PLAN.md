@@ -26,7 +26,7 @@ promises kept. We measure whether the contracts hold on real SQL.
 
 ---
 
-## 2. Test architecture — five layers
+## 2. Test architecture — six layers
 
 Run all: `pytest tests/ -v`
 
@@ -36,13 +36,17 @@ tests/
 ├── fixtures/*.sql              real-world SQL inputs (sanitized)
 ├── golden/*.json               committed output snapshots
 │
-├── test_contracts.py           LAYER 1 — non-negotiable promises      (26)
-├── test_golden.py              LAYER 2 — output regression gate        (9)
-├── test_known_limitations.py   LAYER 3 — tracked defects (xfail)       (7)
-├── test_tiers.py               LAYER 4 — commercial boundary          (19)
-├── test_api.py                 LAYER 5 — HTTP contract                (14)
-└── test_parser.py              unit regressions — one per fixed bug   (20)
+├── test_contracts.py           LAYER 1 — non-negotiable promises
+├── test_golden.py              LAYER 2 — output regression gate
+├── test_known_limitations.py   LAYER 3 — tracked defects (xfail)
+├── test_tiers.py               LAYER 4 — commercial boundary
+├── test_api.py                 LAYER 5 — HTTP contract
+├── test_metamorphic.py         LAYER 6 — equivalent-input invariance (#22)
+└── test_parser.py              unit regressions — one per fixed bug
 ```
+
+(Per-layer counts dropped from this diagram — they drifted out of sync with
+reality more than once; run `pytest tests/ -v` for the real, current numbers.)
 
 ### Layer 1 — Contract tests (`test_contracts.py`)
 
@@ -122,6 +126,20 @@ so it can rely on this contract.
 
 Also asserts `/analyze` works with **zero AI configuration** and makes no outbound
 HTTP calls.
+
+### Layer 6 — Metamorphic tests (`test_metamorphic.py`)
+
+Every other layer asks "does this ONE input produce the RIGHT output."
+Metamorphic tests ask a different question: "do two inputs that SHOULD mean
+the same thing produce the SAME output" — without ever pinning down what the
+"right" answer looks like. Four named properties (renaming an alias,
+reformatting a query, decoy identifiers inside string literals, reordering
+independent statements) each compare two related-but-different inputs to
+each other, not to a fixed expected value. Some of this already existed as
+single fixed-example cases elsewhere (`test_C1` determinism,
+`test_C4_cte_output_alias_translation_does_not_reopen_the_literal_hole`'s one
+decoy-literal case) — this layer generalizes it and makes it a deliberate,
+named place new equivalent-input properties get added to.
 
 ---
 
