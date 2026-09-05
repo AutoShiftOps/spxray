@@ -10,6 +10,7 @@ import re
 import os
 import json
 import base64
+import hashlib
 import requests
 from pathlib import Path
 from collections import defaultdict
@@ -136,6 +137,29 @@ STMT_SPLIT = re.compile(
 )
 
 
+def _decode_bytes_with_encoding(raw: bytes):
+    """
+    Same decoding chain as read_bytes_safe, but also returns which codec was
+    used (#21: reproducibility metadata needs the real detected encoding, not
+    a guess). Kept as a separate function so read_bytes_safe's existing
+    str-only return contract -- relied on throughout the parser and its
+    tests -- never changes.
+    """
+    if raw.startswith(b'\xff\xfe') or raw.startswith(b'\xfe\xff'):
+        try:
+            return raw.decode('utf-16'), 'utf-16'
+        except UnicodeDecodeError:
+            pass
+    if raw.startswith(b'\xef\xbb\xbf'):
+        raw = raw[3:]
+    for enc in ['utf-8', 'windows-1252', 'cp1252', 'latin-1']:
+        try:
+            return raw.decode(enc), enc
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode('latin-1', errors='replace'), 'latin-1 (replacement chars used)'
+
+
 def read_bytes_safe(raw: bytes) -> str:
     """
     Decode bytes trying common SQL file encodings.
@@ -150,19 +174,8 @@ def read_bytes_safe(raw: bytes) -> str:
     through to the encoding list below rather than raising, matching this
     function's existing guarantee of always returning a string.
     """
-    if raw.startswith(b'\xff\xfe') or raw.startswith(b'\xfe\xff'):
-        try:
-            return raw.decode('utf-16')
-        except UnicodeDecodeError:
-            pass
-    if raw.startswith(b'\xef\xbb\xbf'):
-        raw = raw[3:]
-    for enc in ['utf-8', 'windows-1252', 'cp1252', 'latin-1']:
-        try:
-            return raw.decode(enc)
-        except (UnicodeDecodeError, LookupError):
-            continue
-    return raw.decode('latin-1', errors='replace')
+    text, _ = _decode_bytes_with_encoding(raw)
+    return text
 
 
 def mask_string_literals(sql: str) -> str:
@@ -772,11 +785,19 @@ async def analyze(
     all_tables     = []
     all_columns    = []
     schema_map     = {}
+    file_details   = []  # #21: reproducibility metadata, one entry per input file
 
     for filename, raw in payloads:
-        sql     = read_bytes_safe(raw)
+        sql, encoding = _decode_bytes_with_encoding(raw)
         dialect = detect_dialect(sql)
         procs   = split_procedures(sql)
+        file_details.append({
+            "filename":     filename,
+            "sha256":       hashlib.sha256(raw).hexdigest(),
+            "bytes":        len(raw),
+            "encoding":     encoding,
+            "dialect":      dialect,
+        })
 
         for pname, body in procs:
             physical, is_dynamic = parse_sp(body)
@@ -893,6 +914,7 @@ async def analyze(
             "version":      __version__,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "files":        [fn for fn, _ in payloads],
+            "file_details": file_details,
             "tier":         tier.name,
         },
         "procedures": all_procedures,

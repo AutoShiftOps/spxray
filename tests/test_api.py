@@ -59,10 +59,37 @@ def test_analyze_returns_full_contract(client):
 def test_analyze_meta_is_auditable(client):
     """Enterprise requirement: every report is traceable to a tool version+time."""
     meta = client.post("/analyze", files=[upload("crud_and_dynamic.sql")]).json()["meta"]
-    for field in ("tool", "version", "generated_at", "files", "tier"):
+    for field in ("tool", "version", "generated_at", "files", "file_details", "tier"):
         assert field in meta, f"meta missing {field}"
     assert meta["tool"] == "spxray"
     assert "crud_and_dynamic.sql" in meta["files"]
+
+
+# ── Reproducibility metadata (#21) ────────────────────────────────────────────
+
+def test_file_details_shape_and_hash(client):
+    raw = (FIXTURES / "crud_and_dynamic.sql").read_bytes()
+    import hashlib
+    expected_sha256 = hashlib.sha256(raw).hexdigest()
+
+    meta = client.post("/analyze", files=[upload("crud_and_dynamic.sql")]).json()["meta"]
+    details = meta["file_details"]
+    assert len(details) == 1
+    d = details[0]
+    for field in ("filename", "sha256", "bytes", "encoding", "dialect"):
+        assert field in d, f"file_details entry missing {field}"
+    assert d["filename"] == "crud_and_dynamic.sql"
+    assert d["sha256"] == expected_sha256, "hash must be over the exact input bytes"
+    assert d["bytes"] == len(raw)
+
+
+def test_file_details_one_entry_per_file(client):
+    d = client.post("/analyze", files=[
+        upload("alias_collision.sql"),
+        upload("postgres_proc.sql"),
+    ]).json()
+    filenames = {fd["filename"] for fd in d["meta"]["file_details"]}
+    assert filenames == {"alias_collision.sql", "postgres_proc.sql"}
 
 
 def test_pasted_sql_matches_equivalent_file_upload(client):

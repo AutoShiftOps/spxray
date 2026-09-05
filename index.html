@@ -293,6 +293,7 @@ tr:hover td{background:rgba(0,194,168,.04)}
     </button>
     <div class="header-actions" id="headerActions" style="display:none">
       <button class="btn btn-ghost" onclick="resetTool()">↩ New Analysis</button>
+      <button class="btn btn-ghost" onclick="downloadAssessmentBundle()" title="Reproducibility metadata: file hashes, detected encoding/dialect, tool version — JSON, so it can be verified and re-run later">⬇ Assessment JSON</button>
       <button class="btn btn-primary" onclick="downloadExcel()">⬇ Download Excel</button>
     </div>
   </div>
@@ -1170,6 +1171,36 @@ function aiTextToRichRuns(container) {
     }
   });
   return runs;
+}
+
+// ── Assessment bundle (#21) ────────────────────────────────────────────────
+// A reproducibility sidecar: enough to prove what exact input produced this
+// report and re-run it later to confirm nothing changed. Everything in it
+// (file hashes, detected encoding/dialect, tool version) comes straight from
+// analysisResult.meta -- the backend computes it once at analyze-time, this
+// just packages it as a standalone downloadable file. No new endpoint.
+function downloadAssessmentBundle() {
+  if (!analysisResult) return;
+  const meta = analysisResult.meta || {};
+  const bundle = {
+    tool:         meta.tool || 'spxray',
+    version:      meta.version,
+    generated_at: meta.generated_at,
+    tier:         meta.tier,
+    files:        meta.file_details || [],
+    stats:        analysisResult.stats,
+    coverage:     analysisResult.coverage,
+  };
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sp_assessment_${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  showToast('🔖', 'Assessment bundle downloaded');
 }
 
 async function downloadExcel() {

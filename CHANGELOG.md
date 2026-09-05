@@ -41,6 +41,12 @@ Working through the open GitHub issue backlog after v1.1.0.
   resolution); no new parser instrumentation. Surfaced as a new `coverage`
   field on `/analyze`, a Summary-tab card + per-procedure badges, and a
   banner row + "Needs Review" column in the Excel Summary sheet
+- Issue #21: a downloadable "Assessment JSON" reproducibility bundle — per-file
+  SHA-256 hash, detected encoding, detected dialect, tool version, and
+  generation timestamp. `read_bytes_safe`'s decoding chain now also returns
+  which codec succeeded (`_decode_bytes_with_encoding`); its own str-only
+  contract is unchanged. New `meta.file_details` on `/analyze`; the frontend
+  assembles and downloads the JSON client-side, no new endpoint
 
 ### Closed without code
 - **#4** — closed; substantially served by the existing Excel export + AI
