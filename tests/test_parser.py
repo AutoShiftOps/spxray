@@ -145,6 +145,52 @@ def test_cte_output_alias_via_join_qualifier_resolves_to_correct_table():
     assert "Regional Risk Rating" not in cols_of(physical, "RISK.RISKCATEGORY")
 
 
+# ── Bug fix: CTE output allow-list (formerly KL-6) ──────────────────────────────
+
+def test_column_not_output_by_cte_is_not_attributed():
+    """
+    `WITH X AS (SELECT Id, Name FROM dbo.Real) SELECT X.Missing FROM X` -- X
+    only ever outputs Id and Name. 'Missing' is neither a passthrough column
+    nor an aliased output; it does not exist on X at all, so it must not be
+    attributed to dbo.Real just because X resolves there.
+
+    A sibling of KL-1: KL-1 is a column the CTE RENAMED being reported under
+    the wrong name; this was a column the CTE never claimed at all being
+    reported as if it were real. Fixed via extract_cte_output_map's inverse --
+    a per-CTE allow-list of every column the CTE actually outputs (passthrough
+    AND aliased), checked before attribution, not just alias->source
+    translation. A CTE using `SELECT *`/`alias.*` gets no allow-list enforced
+    (its real columns are unknowable statically) so that case is unaffected.
+
+    Was tests/test_known_limitations.py::test_KL6 (xfail). Promoted here now
+    that main.py's qualified-column loop checks cte_output_columns before
+    falling back to the CTE's primary source table. If this regresses, KL-6 is
+    back and belongs in test_known_limitations.py again, not here.
+    """
+    sql = """
+    ;WITH X AS (SELECT Id, Name FROM dbo.Real)
+    SELECT X.Missing FROM X
+    """
+    physical, _ = parse_sp(sql)
+    assert "MISSING" not in cols_of(physical, "DBO.REAL"), \
+        "attributed a column the CTE never actually outputs"
+
+
+def test_cte_wildcard_select_star_does_not_enforce_output_allowlist():
+    """
+    A CTE built on `SELECT *` exposes an unknowable set of real columns
+    statically -- the allow-list check must not enforce anything for it
+    (permissive fallback), or it would start wrongly dropping genuinely valid
+    columns instead of fixing KL-6's false positive.
+    """
+    sql = """
+    ;WITH X AS (SELECT * FROM dbo.Real)
+    SELECT X.Anything FROM X
+    """
+    physical, _ = parse_sp(sql)
+    assert "ANYTHING" in cols_of(physical, "DBO.REAL")
+
+
 # ── Bug fix: CTE alias chain resolution ──────────────────────────────────────
 
 def test_cte_alias_resolves_to_physical_table():

@@ -80,37 +80,6 @@ def test_KL5_expression_derived_cte_output_not_resolved():
         "the real operand column referenced inside SUM() should be surfaced too"
 
 
-@pytest.mark.xfail(strict=True, reason="KL-6: a column referenced through a CTE alias is attributed even when the CTE never outputs a column by that name")
-def test_KL6_nonexistent_cte_output_column_not_attributed():
-    """
-    `WITH X AS (SELECT Id, Name FROM dbo.Real) SELECT X.Missing FROM X` -- X
-    only ever outputs Id and Name. 'Missing' is neither a passthrough column
-    nor an aliased output; it does not exist on X at all. We still attribute
-    'MISSING' to dbo.Real, because the qualified-column loop only checks
-    "does prefix resolve to a physical table", never "does the CTE actually
-    expose a column by this name".
-
-    A sibling of KL-1 (see extract_cte_output_map, main.py): KL-1 is a column
-    the CTE RENAMED being reported under the wrong name; this is a column the
-    CTE never claimed at all being reported as if it were real. Fixing it
-    needs the inverse of extract_cte_output_map -- a per-CTE allow-list of
-    every column the CTE actually outputs (passthrough AND aliased), checked
-    before attribution, not just an alias->source translation table.
-
-    First observed in tests/fixtures/multi_cte_report.sql: the outer query
-    joins `ON PD.[Party ID] = P.PID`, but the Products CTE never selects
-    anything named PID (it outputs id, caseid, 'Product Type') -- SALES.PRODUCT
-    still reports a PID column after the KL-1 fix, for exactly this reason.
-    """
-    sql = """
-    ;WITH X AS (SELECT Id, Name FROM dbo.Real)
-    SELECT X.Missing FROM X
-    """
-    physical, _ = parse_sp(sql)
-    assert "MISSING" not in cols_of(physical, "DBO.REAL"), \
-        "attributed a column the CTE never actually outputs"
-
-
 @pytest.mark.xfail(strict=True, reason="KL-7: a physical table is dropped entirely when its base name collides with a same-named CTE")
 def test_KL7_physical_table_dropped_when_name_collides_with_cte():
     """

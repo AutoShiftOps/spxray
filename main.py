@@ -351,7 +351,9 @@ _SIMPLE_SOURCE_COL_RX = re.compile(r'^(?:([A-Za-z_]\w*)\.)?(\[[^\]]+\]|[A-Za-z_]
 
 def extract_cte_output_map(norm_alias: str, cte_names: set):
     """
-    Map each CTE's OUTPUT column aliases back to their real source (KL-1 fix).
+    Map each CTE's OUTPUT column aliases back to their real source (KL-1 fix),
+    and build the inverse: a per-CTE allow-list of every column name it
+    actually exposes, passthrough and aliased (KL-6 fix).
 
     `SELECT Id AS 'Party ID' FROM dbo.Party` means the CTE's output column
     'Party ID' is an ALIAS -- dbo.Party has no such column, it has 'Id'. This
@@ -366,6 +368,15 @@ def extract_cte_output_map(norm_alias: str, cte_names: set):
                                           CTE's own body (e.g. `rcs1.Foo`);
                                           belongs to that specific table.
 
+    Also returns, per CTE, the set of every name it exposes under (passthrough
+    columns AND output aliases) -- the answer to "does this CTE output a
+    column called X at all," which the alias-translation map above cannot
+    answer on its own (it only knows about *aliased* outputs). A CTE whose
+    SELECT list includes `*` or `alias.*` gets None instead of a set: its real
+    columns are unknowable statically, so the caller must not enforce the
+    allow-list for it (permissive fallback -- consistent with never inventing
+    a column, but also never wrongly dropping one we can't verify).
+
     Must be called with `norm_alias`, the bracket-normalized output of
     clean_sql_preserve_aliases -- NOT `norm` -- so that quoted alias text
     (`AS 'Party ID'`) survived clean_sql's literal-masking. See
@@ -376,6 +387,7 @@ def extract_cte_output_map(norm_alias: str, cte_names: set):
         re.IGNORECASE | re.DOTALL
     )
     output_map = {}
+    output_columns = {}
     for m in cte_rx.finditer(norm_alias):
         cname = m.group(1).upper()
         if cname not in cte_names:
@@ -389,13 +401,27 @@ def extract_cte_output_map(norm_alias: str, cte_names: set):
         local_aliases = build_alias_map(body, cte_names)
 
         alias_map_for_cte = {}
+        exposed = set()
+        wildcard = False
         for item in _split_top_level_commas(select_list):
             item = item.strip()
             if not item:
                 continue
+            if item == '*' or re.match(r'^[\w]+\.\*$', item):
+                wildcard = True
+                continue
+
             am = _CTE_OUTPUT_ALIAS_RX.match(item)
             if not am:
-                continue  # no AS -> plain passthrough column, nothing to translate
+                # no AS -> plain passthrough column (record its name) or an
+                # unaliased expression (no simple name to expose -- nothing
+                # outside this CTE could reference it by name anyway)
+                sm = _SIMPLE_SOURCE_COL_RX.match(item)
+                if sm:
+                    col_raw  = sm.group(2)
+                    col_text = col_raw[1:-1].strip() if col_raw.startswith('[') else col_raw
+                    exposed.add(_norm_alias_text(col_text))
+                continue
 
             lhs, alias_part = am.group(1).strip(), am.group(2).strip()
 
@@ -409,6 +435,7 @@ def extract_cte_output_map(norm_alias: str, cte_names: set):
             if alias_text is None:
                 continue  # malformed/unsupported alias syntax -- skip defensively
             alias_norm = _norm_alias_text(alias_text)
+            exposed.add(alias_norm)
 
             sm = _SIMPLE_SOURCE_COL_RX.match(lhs)
             if not sm:
@@ -431,8 +458,9 @@ def extract_cte_output_map(norm_alias: str, cte_names: set):
                 alias_map_for_cte[alias_norm] = (None, source_col)
 
         output_map[cname] = alias_map_for_cte
+        output_columns[cname] = None if wildcard else exposed
 
-    return output_map
+    return output_map, output_columns
 
 
 def _attribute_unqualified_tokens(block: str, stmt_tables: list, physical: dict, declined_qualified: set):
@@ -464,7 +492,7 @@ def parse_sp(sql: str):
 
     clean_alias    = clean_sql_preserve_aliases(sql)
     norm_alias, _  = normalize_bracketed(clean_alias)
-    cte_output_map = extract_cte_output_map(norm_alias, cte_names)
+    cte_output_map, cte_output_columns = extract_cte_output_map(norm_alias, cte_names)
 
     physical  = {}
     is_dynamic = bool(re.search(r'EXEC\s*\(|EXECUTE\s*\(|sp_executesql', clean, re.IGNORECASE))
@@ -570,6 +598,16 @@ def parse_sp(sql: str):
                         target = mapped_table
                     elif source_cte in cte_src:
                         target = cte_src[source_cte]
+            elif source_cte:
+                # KL-6: not a recorded output ALIAS of this CTE -- could be a
+                # genuine passthrough column (fine, fall through and attribute
+                # to the CTE's primary source table as before) or a name the
+                # CTE never outputs at all. Check the full per-CTE allow-list
+                # (passthrough + aliased); None means the CTE used SELECT * and
+                # its real columns are unknowable statically, so don't enforce.
+                allowed = cte_output_columns.get(source_cte)
+                if allowed is not None and col not in allowed:
+                    invented = True
 
             if not invented and target and target in physical:
                 physical[target]['columns'].add(col)

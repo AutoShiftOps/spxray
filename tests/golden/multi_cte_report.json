@@ -107,8 +107,7 @@
       "columns": [
         "CASEID",
         "ID",
-        "LookupProductTypeId",
-        "PID"
+        "LookupProductTypeId"
       ]
     }
   }
