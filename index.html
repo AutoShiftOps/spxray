@@ -153,24 +153,27 @@ body{background:var(--navy);color:var(--text-primary);font-family:var(--font-bod
 /* Table */
 .table-wrap{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border)}
 table{width:100%;border-collapse:collapse;font-size:13px}
-thead{background:var(--surface-raised);position:sticky;top:0;z-index:10}
-th{padding:10px 14px;text-align:left;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--text-dim);border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
+thead{background:rgba(0,194,168,.07);position:sticky;top:0;z-index:10}
+th{padding:10px 14px;text-align:left;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text-secondary);border-bottom:1px solid rgba(0,194,168,.25);white-space:nowrap;cursor:pointer;user-select:none}
 th:hover{color:var(--text-secondary)}
 th.sort-asc::after{content:' ↑';color:var(--accent)}
 th.sort-desc::after{content:' ↓';color:var(--accent)}
-tr:nth-child(even) td{background:rgba(26,46,69,.4)}
+tr:nth-child(even) td{background:rgba(26,46,69,.55)}
 td{padding:9px 14px;border-bottom:1px solid rgba(42,63,87,.5);vertical-align:middle}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:rgba(0,194,168,.04)}
 
 /* Badges */
 .op-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.5px;font-family:var(--font-mono)}
+/* Exact RGB match to the Excel export's OP_COLORS (ARGB hex minus the alpha
+   byte) -- SELECT/INSERT/UPDATE already lined up; DELETE/MERGE/TRUNCATE were
+   approximated and are now the same color language as the downloaded file. */
 .op-SELECT  {background:rgba(55,86,35,.4); color:#7DC45B;border:1px solid rgba(55,86,35,.8)}
 .op-INSERT  {background:rgba(131,60,0,.4); color:#F5A623;border:1px solid rgba(131,60,0,.8)}
 .op-UPDATE  {background:rgba(127,96,0,.4); color:#FFD60A;border:1px solid rgba(127,96,0,.8)}
-.op-DELETE  {background:rgba(200,0,0,.3);  color:#FF6B6B;border:1px solid rgba(200,0,0,.6)}
-.op-MERGE   {background:rgba(58,50,104,.5);color:#A78BFA;border:1px solid rgba(58,50,104,.9)}
-.op-TRUNCATE{background:rgba(66,0,0,.4);   color:#FF4444;border:1px solid rgba(66,0,0,.8)}
+.op-DELETE  {background:rgba(192,0,0,.35); color:#FF6B6B;border:1px solid rgba(192,0,0,.7)}
+.op-MERGE   {background:rgba(91,44,111,.45);color:#A78BFA;border:1px solid rgba(91,44,111,.85)}
+.op-TRUNCATE{background:rgba(123,36,28,.45);color:#FF4444;border:1px solid rgba(123,36,28,.85)}
 .schema-chip{background:var(--navy-light);color:var(--steel-bright);font-size:11px;padding:2px 8px;border-radius:4px;font-family:var(--font-mono);border:1px solid var(--border)}
 .col-name{font-family:var(--font-mono);font-size:12px;color:var(--accent)}
 .unresolved-tag{font-size:11px;color:var(--text-dim);font-style:italic}
@@ -191,10 +194,11 @@ tr:hover td{background:rgba(0,194,168,.04)}
 /* Schema cards */
 .schema-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
 .schema-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
-.schema-card-header{background:var(--surface-raised);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+.schema-card-header{background:rgba(0,194,168,.07);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(0,194,168,.25)}
 .schema-name{font-size:12px;font-weight:700;font-family:var(--font-mono);color:var(--steel-bright);text-transform:uppercase;letter-spacing:1px}
 .schema-count{font-size:11px;color:var(--text-dim)}
 .schema-table-row{padding:8px 14px;border-bottom:1px solid rgba(42,63,87,.4)}
+.schema-table-row:nth-child(even){background:rgba(26,46,69,.35)}
 .schema-table-row:last-child{border-bottom:none}
 .schema-table-name{font-weight:600;font-size:13px;margin-bottom:5px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;row-gap:4px;column-gap:10px;cursor:pointer}
 .schema-table-name:hover{color:var(--accent)}
