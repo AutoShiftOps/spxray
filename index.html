@@ -97,28 +97,47 @@ body{background:var(--navy);color:var(--text-primary);font-family:var(--font-bod
 .btn-sm{padding:4px 10px;font-size:12px}
 
 /* Upload zone */
-.upload-zone{max-width:680px;margin:60px auto 0;padding:0 24px 56px;text-align:center}
-.upload-hero{font-size:28px;font-weight:700;letter-spacing:-.5px;line-height:1.2;margin-bottom:10px}
+.upload-zone{max-width:720px;margin:32px auto 0;padding:0 24px 40px;text-align:center}
+.upload-hero{font-size:30px;font-weight:700;letter-spacing:-.6px;line-height:1.15;margin-bottom:6px}
 .upload-hero span{color:var(--accent)}
-.upload-sub{color:var(--text-secondary);font-size:14px;margin-bottom:36px}
-.input-mode-toggle{display:flex;justify-content:center;gap:2px;margin-bottom:16px}
+.upload-sub{color:var(--text-secondary);font-size:14px;margin-bottom:12px}
+.trust-chips{display:flex;justify-content:center;flex-wrap:wrap;gap:6px;margin-bottom:20px}
+.trust-chip{font-size:11px;font-weight:500;color:var(--text-secondary);background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:2px 10px;font-family:var(--font-mono)}
+.trust-chip b{color:var(--accent);font-weight:600}
+.input-mode-toggle{display:flex;justify-content:center;gap:2px;margin-bottom:10px}
 .input-mode-toggle button{padding:8px 18px;font-size:13px;font-weight:600;color:var(--text-dim);cursor:pointer;border:1px solid var(--border);background:var(--surface);border-radius:8px}
 .input-mode-toggle button.active{color:var(--accent);border-color:var(--accent);background:rgba(0,194,168,.08)}
 .paste-textarea{width:100%;min-height:280px;resize:vertical;background:var(--surface);color:var(--text-primary);border:2px dashed var(--border);border-radius:var(--radius-lg);padding:16px;font-family:var(--font-mono);font-size:13px;line-height:1.5}
 .paste-textarea:focus{outline:none;border-color:var(--accent)}
-.dropzone{border:2px dashed var(--border);border-radius:var(--radius-lg);padding:48px 24px;cursor:pointer;transition:all .2s;background:var(--surface);position:relative}
+.dropzone{border:2px dashed var(--border);border-radius:var(--radius-lg);padding:22px 20px;cursor:pointer;transition:all .2s;background:var(--surface);position:relative}
 .dropzone:hover,.dropzone.drag-over{border-color:var(--accent);background:rgba(0,194,168,.05)}
 .dropzone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
-.dropzone-icon{font-size:40px;margin-bottom:14px;display:block}
-.dropzone-label{font-size:15px;font-weight:600;margin-bottom:6px}
+.dropzone-icon{width:18px;height:18px;flex:none;color:var(--accent)}
+.dropzone-label{font-size:15px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;justify-content:center;gap:8px}
 .dropzone-hint{font-size:12px;color:var(--text-dim)}
 .file-list{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
 .file-chip{background:var(--surface-raised);border:1px solid var(--border);border-radius:20px;padding:4px 12px 4px 10px;font-size:12px;display:flex;align-items:center;gap:6px;color:var(--text-secondary)}
 .file-chip .rm{cursor:pointer;color:var(--text-dim);font-size:14px}
 .file-chip .rm:hover{color:var(--danger)}
-.analyze-row{margin-top:24px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
-.example-row{margin-top:14px;display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:wrap}
+.analyze-row{margin-top:14px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
+.btn-cta{padding:11px 28px;font-size:15px;font-weight:700;border-radius:8px;box-shadow:0 4px 18px rgba(0,194,168,.22);min-width:240px;justify-content:center}
+.btn-cta:disabled{box-shadow:none;opacity:.55}
+.example-row{margin-top:10px;display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:wrap}
 .example-label{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px}
+/* static output preview — no data fetch, illustrates the report shape */
+.preview{margin-top:28px;text-align:left;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--navy-mid);overflow:hidden}
+.preview-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border)}
+.preview-title{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);font-weight:600}
+.preview-note{font-size:11px;color:var(--text-dim)}
+.preview-tabs{display:flex;gap:2px;padding:0 8px;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+.preview-tabs span{font-size:12px;color:var(--text-dim);padding:7px 10px;white-space:nowrap;border-bottom:2px solid transparent}
+.preview-tabs span.on{color:var(--accent);border-bottom-color:var(--accent)}
+.preview-body{padding:12px}
+.pv-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.preview .schema-table-name{cursor:default}
+.preview .schema-table-name:hover{color:inherit}
+.tagline{margin-top:18px;font-size:12px;color:var(--text-dim)}
+.tagline span{color:var(--text-secondary)}
 .progress-bar{height:3px;background:var(--border);border-radius:2px;margin-top:20px;overflow:hidden;display:none}
 .progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--steel-bright));width:0%;transition:width .3s;border-radius:2px}
 
@@ -247,8 +266,12 @@ tr:hover td{background:rgba(0,194,168,.04)}
   .brand-sub{display:none}
   .api-bar{padding:8px 14px}
   .api-input{width:100%;flex:1 1 100%}
-  .upload-zone{margin-top:32px;padding:0 14px 40px}
-  .upload-hero{font-size:20px}
+  .upload-zone{margin-top:20px;padding:0 14px 32px}
+  .upload-hero{font-size:24px}
+  .upload-sub{font-size:13px}
+  .btn-cta{width:100%;min-width:0}
+  .preview-note{display:none}
+  .preview-tabs span.on{order:-1}
   .input-mode-toggle{flex-wrap:wrap}
   .results-header{padding:12px 14px}
   .results-meta{gap:12px}
@@ -317,8 +340,14 @@ tr:hover td{background:rgba(0,194,168,.04)}
 
 <!-- Upload -->
 <div class="upload-zone" id="uploadZone">
-  <div class="upload-hero">Every other database migration tool needs a database connection or a credit card.<br><span>This one needs a folder of .sql files.</span></div>
-  <p class="upload-sub">Upload .sql files — the Python backend extracts every physical table, schema, column and CRUD operation. Optional AI insights powered by HuggingFace (Qwen2.5-Coder).</p>
+  <h1 class="upload-hero">X-ray your <span>stored procedures.</span></h1>
+  <p class="upload-sub">Every physical table, schema, column and CRUD operation — straight from .sql files.</p>
+  <div class="trust-chips">
+    <span class="trust-chip"><b>No</b> DB connection</span>
+    <span class="trust-chip"><b>No</b> signup</span>
+    <span class="trust-chip">~30 seconds</span>
+    <span class="trust-chip">Apache-2.0</span>
+  </div>
 
   <div class="input-mode-toggle">
     <button id="modeUploadBtn" class="active" onclick="setInputMode('upload')">📂 Upload files</button>
@@ -328,8 +357,7 @@ tr:hover td{background:rgba(0,194,168,.04)}
   <div id="uploadMode">
     <div class="dropzone" id="dropzone">
       <input type="file" id="fileInput" multiple accept=".sql,.txt" onchange="handleFiles(this.files)">
-      <span class="dropzone-icon">📂</span>
-      <div class="dropzone-label">Drop .sql files here or click to browse</div>
+      <div class="dropzone-label"><svg class="dropzone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>Drop .sql files here or click to browse</div>
       <div class="dropzone-hint">Multi-file · T-SQL · PostgreSQL · MySQL · Oracle · Any encoding</div>
     </div>
     <div class="file-list" id="fileList"></div>
@@ -343,7 +371,7 @@ tr:hover td{background:rgba(0,194,168,.04)}
   </div>
 
   <div class="analyze-row">
-    <button class="btn btn-primary" id="analyzeBtn" onclick="analyze()" disabled>▶ Analyze via API</button>
+    <button class="btn btn-primary btn-cta" id="analyzeBtn" onclick="analyze()" disabled>▶ Analyze via API</button>
   </div>
   <div class="example-row">
     <span class="example-label">Try an example:</span>
@@ -358,6 +386,39 @@ tr:hover td{background:rgba(0,194,168,.04)}
   <div class="coldstart-msg" id="coldStartMsg" style="display:none">
     <span class="coldstart-spinner"></span><span id="coldStartMsgText"></span>
   </div>
+
+  <!-- Static output preview: illustrative only, no data fetch -->
+  <div class="preview" aria-label="Example of the report you get">
+    <div class="preview-head">
+      <span class="preview-title">What you get</span>
+      <span class="preview-note">sample output · Excel + JSON export</span>
+    </div>
+    <div class="preview-tabs" aria-hidden="true">
+      <span>📋 Summary</span><span>🗂 Physical Tables</span><span>📐 Columns Detail</span><span class="on">🏗 Schema Breakdown</span><span>✨ AI Insights</span>
+    </div>
+    <div class="preview-body">
+      <div class="pv-card">
+        <div class="schema-card-header">
+          <span class="schema-name">sales</span>
+          <span class="schema-count">3 table(s)</span>
+        </div>
+        <div class="schema-table-row">
+          <div class="schema-table-name"><span>sales.Order</span><span class="schema-table-ops"><span class="op-badge op-SELECT">SELECT</span> <span class="op-badge op-UPDATE">UPDATE</span></span></div>
+          <div class="schema-cols"><span class="schema-chip">OrderID</span><span class="schema-chip">PartyID</span><span class="schema-chip">Status</span></div>
+        </div>
+        <div class="schema-table-row">
+          <div class="schema-table-name"><span>sales.OrderLine</span><span class="schema-table-ops"><span class="op-badge op-INSERT">INSERT</span> <span class="op-badge op-DELETE">DELETE</span></span></div>
+          <div class="schema-cols"><span class="schema-chip">OrderID</span><span class="schema-chip">ProductID</span><span class="schema-chip">Qty</span></div>
+        </div>
+        <div class="schema-table-row">
+          <div class="schema-table-name"><span>sales.Product</span><span class="schema-table-ops"><span class="op-badge op-MERGE">MERGE</span></span></div>
+          <div class="schema-cols"><span class="schema-chip">ProductID</span><span class="schema-chip">ListPrice</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="tagline">Every other database migration tool needs a database connection or a credit card. <span>This one needs a folder of .sql files.</span></p>
 </div>
 
 <!-- Results -->
