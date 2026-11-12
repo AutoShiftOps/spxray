@@ -573,6 +573,7 @@ tr:hover td{background:rgba(0,194,168,.04)}
 let uploadedFiles  = [];
 let analysisResult = null;
 let inputMode      = 'upload';   // 'upload' | 'paste'
+let analysisSource = 'upload';   // inputMode at the moment Analyze was clicked
 
 function setInputMode(mode) {
   inputMode = mode;
@@ -776,6 +777,7 @@ async function analyze() {
   const pastedSql = inputMode === 'paste' ? document.getElementById('pasteTextarea').value.trim() : '';
   if (inputMode === 'upload' && !uploadedFiles.length) return;
   if (inputMode === 'paste' && !pastedSql) return;
+  analysisSource = inputMode;  // what was actually sent — the toggle may change later
   hideError();
   hideColdStart();
 
@@ -821,6 +823,14 @@ async function analyze() {
 }
 
 // ── Render ─────────────────────────────────────────────────────
+// Pasted SQL is sent as one synthetic "pasted.sql" entry, so a file count
+// would read as "across 0/1 file(s)" — describe the source instead.
+function sourceLabel(data) {
+  if (analysisSource === 'paste') return 'from pasted SQL';
+  const n = (data.meta && Array.isArray(data.meta.files)) ? data.meta.files.length : uploadedFiles.length;
+  return n > 0 ? `across ${n} file(s)` : 'from pasted SQL';
+}
+
 function renderResults(data) {
   document.getElementById('uploadZone').style.display  = 'none';
   document.getElementById('results').style.display     = 'block';
@@ -874,7 +884,7 @@ function renderSummary(data) {
     <div class="summary-card">
       <div class="summary-card-label">Stored Procedures</div>
       <div class="summary-card-value">${data.stats.total_procedures}</div>
-      <div class="summary-card-sub">across ${uploadedFiles.length} file(s)</div>
+      <div class="summary-card-sub">${sourceLabel(data)}</div>
     </div>
     <div class="summary-card">
       <div class="summary-card-label">Physical Tables</div>
