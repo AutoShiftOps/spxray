@@ -38,7 +38,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://spxray.vercel.app",
+        "https://spxray.querytuner.com",
+        "https://spxray.vercel.app",  # legacy domain; old links still resolve
         "http://localhost:8000",
         "null",  # file:// origin, for people who just open index.html
     ],

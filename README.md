@@ -17,7 +17,7 @@ report. No install. No agent. No IAM role. No database credentials.
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](LICENSE)
 [![Code of Conduct](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa?style=flat-square)](CODE_OF_CONDUCT.md)
 
-[**Live demo**](https://spxray.vercel.app) · [Why this exists](#why) · [What's in / what's out](#whats-in--whats-out)
+[**Live demo**](https://spxray.querytuner.com) · [Why this exists](#why) · [What's in / what's out](#whats-in--whats-out)
 
 *A [QueryTuner](https://querytuner.com) project*
 
@@ -59,7 +59,7 @@ plan and defend it in a review.
 
 ## Try it
 
-**Hosted:** [spxray.vercel.app](https://spxray.vercel.app) — the
+**Hosted:** [spxray.querytuner.com](https://spxray.querytuner.com) — the
 backend is on a free tier, so the first request after an idle period takes
 ~30–60s to wake. Subsequent requests are instant.
 
