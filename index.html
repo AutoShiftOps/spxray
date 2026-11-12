@@ -303,7 +303,7 @@ tr:hover td{background:rgba(0,194,168,.04)}
      only a small status dot on the toggle itself is visible up front. -->
 <div class="api-bar" id="apiBar">
   <span class="api-label">API Endpoint:</span>
-  <input class="api-input" id="apiUrl" value="https://sql-sp-companion.onrender.com"
+  <input class="api-input" id="apiUrl" value="https://api.spxray.querytuner.com"
          placeholder="https://your-render-app.onrender.com"
          onchange="checkApiHealth()" />
   <button class="btn btn-ghost btn-sm" onclick="checkApiHealth()">Check</button>
@@ -527,7 +527,7 @@ function setInputMode(mode) {
 }
 
 function apiBase() {
-  return (document.getElementById('apiUrl').value || 'https://sql-sp-companion.onrender.com').replace(/\/$/, '');
+  return (document.getElementById('apiUrl').value || 'https://api.spxray.querytuner.com').replace(/\/$/, '');
 }
 
 // ── API bar toggle ─────────────────────────────────────────────
